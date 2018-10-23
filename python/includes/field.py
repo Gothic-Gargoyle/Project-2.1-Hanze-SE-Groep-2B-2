@@ -1,78 +1,60 @@
 from tkinter import *
 
-class Field:
-    """
-    Used to create a new label + field
-    """
-    def __init__(self, root, t_label, fields, input_type="str", row=0, callback=None):
-        """
-            Create a new Field
+# field = Range(root, label, range1, range2)
 
-            :param root: a Tkinter container
-            :param label: The label of the field
-            :param fields: list of field ids
-            :param row: the row where the label + field will be placed
-            :param callback: a function that triggers on change
-            :type root: Tk()
-            :type label: str
-            :type label: tuple
-            :type row: int
-            :type callback: function
 
-        """
-        self.fields = fields
-        self.callback = callback
-        self.input_type = input_type
+class Range:
+    def __init__(self, root, slug, label, row=0, column=0, pattern='[0-9]', cnf={}, pcnf={}, tcnf={}):
 
-        label = Label(root, text=t_label)
-        label.grid(column=0, row=row)
+        # init
+        self.root = root
+        self.id = slug
+        self.label = label
+        self.row = row
+        self.column = column
+        self.pattern = pattern
+        self.cnf = cnf
+        self.pcnf = pcnf
+        self.tcnf = tcnf
 
-        # create StringVar() for on change events
+        # create label
+        self.label = Label(self.root, text=self.label, **self.tcnf)
+        self.label.grid(row=row, column=column)
 
-        # source: https://stackoverflow.com/questions/6548837/how-do-i-get-an-event-callback-when-a-tkinter-entry-widget-is-modified
+        # create entries
+        self.entries = []
+        for i in range(2):
+            entry_container = Frame(self.root)
+            entry = Entry(entry_container, **self.cnf)
+            entry.pack(**self.pcnf)
+            entry_container.grid(row=row, column=column+i+1)
+            self.entries.append(entry)
 
-        self.fields_list = []
-        for field_index in range(0, len(self.fields)):
-
-            self.entry_from = Entry(root)
-            self.entry_from.grid(column=field_index + 1, row=row)
-            self.fields_list.append(self.entry_from)
-
-    def mark(self, color):
-        for field_index in range(0, len(self.fields)):
-            self.fields_list[field_index].configure(bg=color)
-
-    def set(self):
-        pass
-
+    # returns tuple wth the entries
     def get(self):
-        fields = []
-        for field in self.fields_list:
+        print(self.entries)
+        return_entries = []
+        for entry in self.entries:
+            return_entries.append(entry.get())
 
-            if is_type(field.get(), self.input_type):
-                fields.append(field.get())
-                self.mark("white")
+        return tuple(return_entries)
 
+    # sets entry at index to value
+    def set(self, index, value):
+        self.entries[index].delete(0, END)
+        self.entries[index].insert(0, value)
+
+    def validate(self):
+        entry_values = []
+        value = True
+        for entry in self.entries:
+            entry.config(background="white")
+            pattern = re.compile(self.pattern)
+            if not re.match(pattern, entry.get()):
+                entry.config(background="red")
+                value = False
             else:
-                self.mark("red")
-                break
+                entry_values.append(entry.get())
 
-        return fields
+        return False if value is False else "_".join(entry_values)
 
-
-def is_type(value, input_type):
-    # checks if value is given type
-    # !!only works with int or string
-    if input_type is "int":
-        try:
-            int(value)
-        except:
-            return False
-        return True
-    return True
-
-
-
-
-# field
-#
