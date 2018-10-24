@@ -28,7 +28,7 @@ void loop()                     // run over and over again
  // now print out the temperature
  float temperatureC = (voltage - 0.5) * 100 ;  //converting from 10 mv per degree wit 500 mV offset
                                                //to degrees ((voltage - 500mV) times 100)
- Serial.print(temperatureC); Serial.print(",");
+ Serial.print(temperatureC);// Serial.print(",");
  
  // now convert to Fahrenheit
  //float temperatureF = (temperatureC * 9.0 / 5.0) + 32.0;
