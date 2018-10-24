@@ -1,4 +1,3 @@
-
 from python.includes.field import *
 from tkinter import *
 from tkinter.ttk import Notebook
