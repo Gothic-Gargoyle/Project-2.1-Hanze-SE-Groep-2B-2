@@ -1,4 +1,4 @@
-from python.includes.field import *
+from field import *
 from tkinter import *
 from tkinter.ttk import Notebook
 
