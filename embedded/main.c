@@ -8,7 +8,10 @@
 #define UBBRVAL 103 //9600 baud, pagina 243 van de datasheet
 
 uint8_t receivebuffersize = 50; // Ought to be enough for anybody
+uint8_t bufferlocation = 0;
+uint8_t autonomemode = 0; // Staat niet in autonome modus
 unsigned char receivebuffer[sizeof(char) * 50];
+
 
 // The array of tasks
 sTask SCH_tasks_G[SCH_MAX_TASKS];
@@ -247,25 +250,13 @@ void uart_init()
 }
 
 // ------------------------------------------------------------------
-// Ontvangt een bericht over de seriele verbinding en stopt het in een buffer
-// Geeft 0 terug bij succes, 1 als het bericht groter was dan de buffer
-uint8_t uartReceive(unsigned char *buffer, uint8_t buffersize)
+// Ontvangt een byte van uart en geeft deze terug als char
+unsigned char uartReceive()
 {
-  unsigned char c;
-  for(uint8_t i = 0;i < buffersize;i++) {
-    //  wait for an empty receive buffer
-    //  UDRE is set when the receive buffer is set
-    loop_until_bit_is_set(UCSR0A, RXC0);
-    c = UDR0;
-    if (c == '\n' || c == '\r') {
-      // Einde van de regel, voeg handmatig een nullbyte toe
-      buffer[i] = '\0';
-      return 0;
-    }
-    buffer[i] = c;
-
-  }
-  return 1;
+  // wait for an empty receive buffer
+  // UDRE is set when the receive buffer is set
+  loop_until_bit_is_set(UCSR0A, RXC0);
+  return UDR0;
 }
 
 // Stuurt een bericht over de seriele poort heen. String moet getermineerd zijn met een nullcharacter
@@ -288,9 +279,8 @@ void uartSend(unsigned char *buffer) {
 }
 
 unsigned char uartStatus() {
-	//Is uart input buffer empty?
-
-	return  UCSR0A & ( 1 << RXC0 );
+  // Is uart input buffer empty?
+  return  UCSR0A & ( 1 << RXC0 );
 }
 
 void print_about_serial() {
@@ -299,19 +289,52 @@ void print_about_serial() {
 }
 
 void print_test_serial() {
-  char *message = "Testbericht uit scheduler";
+  unsigned char *message = "Testbericht uit scheduler";
   uartSend(message);
 }
 
-// Kijkt of er iets in de UART buffer staat en zal dat bericht afhandelen
+// Handel commando's af en stuur een reactie
+void handleCommand() {
+  unsigned char *message;
+  // Commando's die alleen een status update geven
+  if (strcmp(receivebuffer, "!connectie-check") == 0) {
+    message = "@temperatuur"; // Besturingsunit is een temperatuurmeter TODO: functie voor licht besturingsmeter toevoegen
+  } else if (strcmp(receivebuffer, "!autonoom") == 0) {
+    if (autonomemode == 0) {
+      message = "@nee";
+    } else {
+      message = "@ja";
+    }
+  // Commando's die de staat aanpassen
+  } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
+    autonomemode = 0;
+    message = "@succes";
+  } else if (strcmp(receivebuffer, "!autonoom=1") == 0) {
+    autonomemode = 1;
+    message = "@succes";
+  // Fout commando
+  } else {
+    message = "@ongeldig";
+  }
+  uartSend(message);
+}
+
+// Niet blokkerende ontvanger
 void messagehandler() {
   if(uartStatus() != 0) { // Er staat iets in de buffer als het != 0 is
-    if (uartReceive(receivebuffer, receivebuffersize) != 0) {
-      char *message = "Bericht te groot voor de buffer";
+    receivebuffer[bufferlocation] = uartReceive();
+    if (receivebuffer[bufferlocation] == '\r') {
+      receivebuffer[bufferlocation] = '\0'; // Strip de cr en vervang het met een nullbyte
+      handleCommand();
+      bufferlocation = 0;
+      return;
+    } else if (bufferlocation >= receivebuffersize) {
+      unsigned char *message = "Bericht te groot voor de buffer";
       uartSend(message);
-    } else {
-      uartSend(receivebuffer);
+      bufferlocation = 0;
+      return;
     }
+    bufferlocation++;
   }
 }
 
@@ -321,8 +344,8 @@ uint8_t main()
   SCH_Init_T1(); // Init de interrupts
   // Insert tasks here
   SCH_Add_Task(print_about_serial,1000,0); // Welkomstpraatje na 1 sec weergeven
-  uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1200,100); // Vuur de messagehandler iedere 100ms af
-  uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
+  uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1200,1); // Vuur de messagehandler iedere 1ms af
+  //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
 
   SCH_Start(); // Zet de scheduler aan
   while (1) {
