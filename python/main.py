@@ -1,5 +1,4 @@
-
-from python.includes.field import *
+from field import *
 from tkinter import *
 from tkinter.ttk import Notebook
 
@@ -123,11 +122,9 @@ class WindowController:
         # area right
         self.button_area_right = Frame(self.button_area)
 
-        self.open_temp_graph = Button(self.button_area_right, text="Temperatuur grafiek", **button_config)
-        self.open_light_graph = Button(self.button_area_right, text="Licht grafiek", **button_config)
+        self.open_graph = Button(self.button_area_right, text="Grafieken", **button_config)
 
-        self.open_temp_graph.pack(**button_area_config)
-        self.open_light_graph.pack(**button_area_config)
+        self.open_graph.pack(**button_area_config)
 
         self.button_area_right.pack(side=RIGHT)
 
