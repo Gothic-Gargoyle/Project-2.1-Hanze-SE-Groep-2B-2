@@ -45,16 +45,17 @@ class Range:
         self.entries[index].insert(0, value)
 
     def validate(self):
-        entry_values = []
+        entry_values = {}
         value = True
-        for entry in self.entries:
+        for i in range(len(self.entries)):
+            entry = self.entries[i]
             entry.config(background="white")
             pattern = re.compile(self.pattern)
             if not re.match(pattern, entry.get()):
                 entry.config(background="red")
                 value = False
             else:
-                entry_values.append(entry.get())
+                entry_values[self.id[i]] = entry.get()
 
-        return False if value is False else "_".join(entry_values)
+        return False if value is False else entry_values
 
