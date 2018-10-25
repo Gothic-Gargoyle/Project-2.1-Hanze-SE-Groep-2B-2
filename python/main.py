@@ -53,13 +53,17 @@ class WindowController:
 
         for port in all_ports:
             name = port.device
-            print(port.)
+            print(port)
+            # self.ser = serial.Serial(name, 9600, timeout=1)
             self.ser = serial.Serial(name, 9600, timeout=1)
             time.sleep(2)
-            response = self.handshake(name)
+
+            response = self.handshake(name, self.ser)
             print(response)
             if response == "Temperatuurmeetsensor v0.1":
                 self.ports[name] = self.ser
+            else:
+                self.ser.close()
 
         print(self.ports)
 
@@ -169,16 +173,15 @@ class WindowController:
 
     def send_multiple(self, *send_array):
         for send in send_array:
-            self.send(*send)
+            response = self.send(*send)
 
-    def handshake(self, port):
-        ser = serial.Serial(port, 9600, timeout=1)
+    def handshake(self, port, ser):
         command = bytes('!connectie-check\r', encoding="utf-8")
-        self.ports[port].write(command)
+        ser.write(command)
 
-        return self.read().strip()
+        return self.read(ser).strip()
 
-    def send(self, port, key, value = None):
+    def send(self, port, key, value=None):
         if value is None:
             command = bytes("!" + str(key) + '\r', encoding="utf-8")
         else:
@@ -191,15 +194,17 @@ class WindowController:
 
         print("sending command to port {}:".format(port), command)
 
-        return self.read().strip()
+        response = self.read(self.ports[port]).strip()
+        print(response)
+        return response
 
     # source: https://stackoverflow.com/questions/16470903/pyserial-2-6-specify-end-of-line-in-readline
-    def read(self):
+    def read(self, ser):
         eol = b'\r'
         leneol = len(eol)
         line = bytearray()
         while True:
-            c = self.ser.read(1)
+            c = ser.read(1)
             if c:
                 line += c
                 if line[-leneol:] == eol:
@@ -244,13 +249,10 @@ class WindowController:
                    **button_config)
         auto_button = Button(frame, command=lambda: self.send(port, "autonoom", "1"), text="automatisch",
                    **button_config)
-        test_connection = Button(frame, command=lambda: self.send(port, "connectie-check"), text="automatisch",
-                             **button_config)
 
         open_button.pack(**button_area_config)
         close_button.pack(**button_area_config)
         auto_button.pack(**button_area_config)
-        test_connection.pack(**button_area_config)
 
         return open_button, close_button, auto_button
 
