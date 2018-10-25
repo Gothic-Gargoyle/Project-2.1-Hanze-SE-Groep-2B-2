@@ -4,16 +4,17 @@ import matplotlib.pyplot as plt #import matplotlib library
 from drawnow import *
 
 temperatureC= []
-arduinoData = serial.Serial('COM3', 9600) #Creating our serial object named arduinoData
+arduinoData = serial.Serial('COM9', 9600) #Creating our serial object named arduinoData
 plt.ion() #Tell matplotlib you want interactive mode to plot live data
 cnt=0
 
 def makeFig():             #Create a function that makes our desired plot
-    plt.ylim(-99,99)                                        #Set y min and max values
-    plt.title('My Live Streaming Sensor Data')             #Plot the title
+    plt.ylim(-50,50)                                        #Set y min and max values
+    plt.title('Real-time temperatuur')             #Plot the title
     plt.grid(True)                                         #Turn the grid on
-    plt.ylabel('Temp F')                                   #Set ylabels
-    plt.plot(temperatureC, 'ro-', label='Degrees F')       #plot the temperature
+    plt.ylabel('Temp C')                                   #Set ylabels
+    plt.xlabel('Tijd')
+    plt.plot(temperatureC, 'ro-', label='Graden C')       #plot the temperature
     plt.legend(loc='upper left')                           #plot the legend
  
   
