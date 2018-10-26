@@ -1,10 +1,13 @@
 from field import *
 from tkinter import *
 from tkinter.ttk import Notebook
-
+from pprint import *
+import serial
+import serial.tools.list_ports
+import time
 
 title_config = {
-    "font": ("Comic Sans MS", 30)
+    "font": ("Helvetica", 30)
 }
 input_area_config = {
     "padx": 5,
@@ -20,16 +23,16 @@ button_config = {
     "fg": "white",
     "activebackground": "#212121",
     "activeforeground": "white",
-    "font": ("Comic Sans MS", 12)
+    "font": ("Helvetica", 12)
 }
 text_config = {
-    "font": ("Comic Sans MS", 12)
+    "font": ("Helvetica", 12)
 }
 input_config = {
     "bg": "white",
     "bd": 0,
     "fg": "black",
-    "font": ("Comic Sans MS", 12)
+    "font": ("Helvetica", 12)
 }
 button_area_config = {
     "side": LEFT,
@@ -40,6 +43,34 @@ button_area_config = {
 class WindowController:
 
     def __init__(self, title="window controller", width=800, height=600):
+
+        # ##############################
+        # ## SERIAL SETUP
+        # ##############################
+        # self.ser = serial.Serial('COM3', 9600, timeout=1)
+        all_ports = serial.tools.list_ports.comports()
+        self.ports = {}
+
+        for port in all_ports:
+            name = port.device
+            print(port)
+            # self.ser = serial.Serial(name, 9600, timeout=1)
+            self.ser = serial.Serial(name, 9600, timeout=1)
+            time.sleep(2)
+
+            response = self.handshake(name, self.ser)
+            print(response)
+            if response == "Temperatuurmeetsensor v0.1":
+                self.ports[name] = self.ser
+            else:
+                self.ser.close()
+
+        # print(self.ports)
+
+
+
+
+
 
         # ##############################
         # ## VARS INIT
@@ -59,6 +90,7 @@ class WindowController:
         self.root = Tk()
         self.root.geometry(str(self.width) + "x" + str(self.height))
         self.root.title(title)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # ##############################
         # ## TITLE AREA
@@ -84,16 +116,21 @@ class WindowController:
 
         # fill tabs
         nr_of_ports = 4
-        frames = dict([("COM{}".format(i), Frame(tab_area)) for i in range(nr_of_ports)])
-        print(dict(frames))
+        frames = dict([(name, Frame(tab_area)) for name, value in self.ports.items()])
+        print("frames:", frames)
 
         for name, frame in frames.items():
             self.creat_tab(tab_area, nb, frame, name)
-            self.tabs[name] = self.create_input_group(name, Frame(frame)
-            )
+            self.tabs[name] = {"inputs": (), "buttons": ()}
+            self.tabs[name]["inputs"] = self.create_input_group(name, Frame(frame))
 
 
+            button_area = Frame(frame)
+            self.tabs[name]["buttons"] = self.create_buttons(name, frame)
 
+            # print(self.tabs[name]["buttons"])
+
+            button_area.pack()
 
         # inputs
 
@@ -109,13 +146,13 @@ class WindowController:
         # area left
         self.button_area_left = Frame(self.button_area)
 
-        self.open_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "open"), text="open rolluiken", **button_config)
-        self.close_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "closed"), text="sluit rolluiken", **button_config)
-        self.automatic_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "auto"), text="automatisch", **button_config)
-
-        self.open_shutter_button.pack(**button_area_config)
-        self.close_shutter_button.pack(**button_area_config)
-        self.automatic_shutter_button.pack(**button_area_config)
+        # self.open_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "open"), text="open rolluiken", **button_config)
+        # self.close_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "closed"), text="sluit rolluiken", **button_config)
+        # self.automatic_shutter_button = Button(self.button_area_left, command=lambda: self.send("shutter_status", "auto"), text="automatisch", **button_config)
+        #
+        # self.open_shutter_button.pack(**button_area_config)
+        # self.close_shutter_button.pack(**button_area_config)
+        # self.automatic_shutter_button.pack(**button_area_config)
 
         self.button_area_left.pack(side=LEFT)
 
@@ -137,10 +174,47 @@ class WindowController:
 
         self.root.mainloop()
 
+    def send_multiple(self, *send_array):
+        for send in send_array:
+            response = self.send(*send)
 
+    def handshake(self, port, ser):
+        command = bytes('!connectie-check\r', encoding="utf-8")
+        ser.write(command)
 
-    def send(self, port, label, value):
-        print("sending to port: {}".format(port), str(label)+"="+str(value))
+        return self.read(ser).strip()
+
+    def send(self, port, key, value=None):
+        if value is None:
+            command = bytes("!" + str(key) + '\r', encoding="utf-8")
+        else:
+            # print("sending to port: {}".format(send[0]), str(send[1])+"="+str(send[2]))
+            command = bytes("!" + str(key) + "=" + str(value) + '\r', encoding="utf-8")
+
+        # print(self.ports, port)
+        self.ports[port].flushInput()
+        self.ports[port].write(command)
+
+        response = self.read(self.ports[port]).strip()
+        print("sending command to port {}:".format(port), command, "response", response)
+        return response
+
+    # source: https://stackoverflow.com/questions/16470903/pyserial-2-6-specify-end-of-line-in-readline
+    def read(self, ser):
+        eol = b'\r'
+        leneol = len(eol)
+        line = bytearray()
+        while True:
+            c = ser.read(1)
+            if c:
+                line += c
+                if line[-leneol:] == eol:
+                    break
+            else:
+                break
+
+        return line.decode(encoding="utf-8")
+
 
     def creat_tab(self, tab_area, nb, frame,  name):
         # source: https://gist.github.com/mikofski/5851633
@@ -158,9 +232,20 @@ class WindowController:
         temperature = '^\-[0-9][0-9]?$|^[0-9][0-9]?$|^\-$' # -99 to +99 or - for infinite
         percentage = '^[0-9][0-9]?$|^100$' # 0 - 100
 
-        self.minmax_input = Range(input_area, "minmax", "min - max opening (in %)", pattern=percentage,  tcnf=text_config, cnf=input_config, pcnf=input_area_config)
-        self.temperature_input = Range(input_area, "temperature_input", "sluit rolluiken van tot (in C)", pattern=temperature, row=1, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
-        self.light_input = Range(input_area, "light_input", "sluit rolluiken vanaf licht intensiteit (in %)", pattern=percentage, row=2, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
+        self.minmax_input = Range(input_area, ("ondergrensuitrol", "bovengrensuitrol"), "min - max opening (in %)", pattern=percentage,  tcnf=text_config, cnf=input_config, pcnf=input_area_config)
+        self.temperature_input = Range(input_area, ("ondergrenstemperatuur", "bovengrenstemperatuur"), "sluit rolluiken van tot (in C)", pattern=temperature, row=1, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
+        self.light_input = Range(input_area, ("ondergrenslichtintensiteit", "bovengrenslichtintensiteit"), "sluit rolluiken vanaf licht intensiteit (in %)", pattern=percentage, row=2, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
+
+        # get settings and push them to the inputs
+        self.minmax_input.set(0, self.send(port, "ondergrensuitrol"))
+        self.minmax_input.set(1, self.send(port, "bovengrensuitrol"))
+
+        self.temperature_input.set(0, self.send(port, "ondergrenstemperatuur"))
+        self.temperature_input.set(1, self.send(port, "bovengrenstemperatuur"))
+
+        self.light_input.set(0, self.send(port, "ondergrenslichtintensiteit"))
+        self.light_input.set(1, self.send(port, "bovengrenslichtintensiteit"))
+
 
         button = Button(input_area, text="update", command=lambda: self.send_fields(port), **button_config)
         button.grid(row=3, column=2)
@@ -169,16 +254,37 @@ class WindowController:
 
         return self.minmax_input, self.temperature_input, self.light_input
 
+    def create_buttons(self, port, frame):
+        open_button = Button(frame, command=lambda: self.send_multiple((port, "schermuitrol", "0"), (port, "autonoom", "0")), text="open rolluiken",
+                   **button_config)
+        close_button = Button(frame, command=lambda: self.send_multiple((port, "schermuitrol", "100"), (port, "autonoom", "0")), text="sluit rolluiken",
+                   **button_config)
+        auto_button = Button(frame, command=lambda: self.send(port, "autonoom", "1"), text="automatisch",
+                   **button_config)
+
+        open_button.pack(**button_area_config)
+        close_button.pack(**button_area_config)
+        auto_button.pack(**button_area_config)
+
+        return open_button, close_button, auto_button
+
     def send_fields(self, port):
-        print(self.tabs)
+        # pprint(self.tabs)
 
-        input_list = self.tabs[port]
+        input_list = self.tabs[port]["inputs"]
 
+        # print(input_list)
         for entry in input_list:
-            print(entry.get())
+            # print(entry)
             data = entry.validate()
+            # print(data)
             if data is not False:
-                self.send(port, entry.id, data)
+                for key, value in data.items():
+                    self.send(port, key, value)
+
+    def on_closing(self):
+        self.ser.close()
+        print("closing program")
 
 
 controller = WindowController()
