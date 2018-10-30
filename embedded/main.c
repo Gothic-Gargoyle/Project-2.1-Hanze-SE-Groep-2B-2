@@ -1,6 +1,7 @@
 #include "main.h"
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -12,6 +13,12 @@ uint8_t bufferlocation = 0;
 uint8_t autonomemode = 0; // Staat niet in autonome modus
 unsigned char receivebuffer[sizeof(char) * 50];
 
+int8_t ondergrenstemperatuur = 0;
+int8_t bovengrenstemperatuur = 0;
+
+// EEPROM
+uint16_t reboot_counter_ee EEMEM = 0;
+uint16_t unique_marker EEMEM = 0; // Als deze niet op een magische waarde is gezet is het een nieuw apparaat
 
 // The array of tasks
 sTask SCH_tasks_G[SCH_MAX_TASKS];
@@ -250,13 +257,22 @@ void uart_init()
 }
 
 // ------------------------------------------------------------------
-// Ontvangt een byte van uart en geeft deze terug als char
-unsigned char uartReceive()
+// Ontvangt een bericht over UART tot er een \r ontvangen is en stop dit in de receivebuffer
+// Geeft 0 terug als het sccesvol was, 1 als het bericht groter is dan de buffer
+uint8_t uartReceive()
 {
-  // wait for an empty receive buffer
-  // UDRE is set when the receive buffer is set
-  loop_until_bit_is_set(UCSR0A, RXC0);
-  return UDR0;
+  for (uint8_t i = 0;i < receivebuffersize;i++) {
+    // wait for an empty receive buffer
+    // UDRE is set when the receive buffer is set
+    loop_until_bit_is_set(UCSR0A, RXC0);
+    receivebuffer[i] = UDR0;
+    if (receivebuffer[i] == '\r') {
+      // Einde van de regel, overschrijf \r met een nullbyte
+      receivebuffer[i] = '\0';
+      return 0;
+    }
+  }
+  return 1;
 }
 
 // Stuurt een bericht over de seriele poort heen. String moet getermineerd zijn met een nullcharacter
@@ -283,58 +299,97 @@ unsigned char uartStatus() {
   return  UCSR0A & ( 1 << RXC0 );
 }
 
-void print_about_serial() {
-  char *message = "Temperatuurmeetsensor v0.1\r\nDoor: Jelle Kaufmann";
-  uartSend(message);
+void init_welcome() {
+  uint16_t reboots;
+  uint16_t magic_marker = eeprom_read_word(&unique_marker);
+  if (magic_marker != 31337) {
+    // Appraat is nieuw, stel magic marker in en zet reboots op 0
+    magic_marker = 31337;
+    reboots = 0;
+    eeprom_write_word(&unique_marker, magic_marker);
+  } else {
+    // Apparaat is niet nieuw, increment de reboots timer
+    reboots = eeprom_read_word(&reboot_counter_ee);
+    reboots++;
+  }
+  char reboots_str[6]; // 16 bit nummer + nullbyte
+  snprintf(reboots_str, 6, "%u", reboots);
+  uartSend(strcat("Temperatuurmeetsensor v0.1\r\nBoot nummer: ", reboots_str));
+  eeprom_write_word(&reboot_counter_ee, reboots);
 }
 
 void print_test_serial() {
-  unsigned char *message = "Testbericht uit scheduler";
-  uartSend(message);
+  uartSend("Testbericht uit scheduler");
+}
+
+// Leest het argument uit de receivebuffer en geeft deze terug
+int8_t commandArgumentParser() {
+  unsigned char argument[4]; // Kan maximaal uit 4 tekens bestaan
+  uint8_t argumentpos = 0;
+  int8_t argumentint;
+  // Kopieer de chars na het = teken over naar argument
+  for (uint8_t i = 0;i < receivebuffersize;i++) {
+    if (receivebuffer[i] == '=') {
+      while (receivebuffer[i] != '\0' && argumentpos < 4) {
+        i++;
+        argument[argumentpos] = receivebuffer[i];
+        argumentpos++;
+      }
+      argument[argumentpos] = '\0';
+      break; // Stop het kopieren
+    }
+  }
+  // Converteer argument naar int
+  argumentint = atoi(argument);
+  return argumentint;
 }
 
 // Handel commando's af en stuur een reactie
 void handleCommand() {
-  unsigned char *message;
   // Commando's die alleen een status update geven
   if (strcmp(receivebuffer, "!connectie-check") == 0) {
-    message = "@temperatuur"; // Besturingsunit is een temperatuurmeter TODO: functie voor licht besturingsmeter toevoegen
+    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter TODO: functie voor licht besturingsmeter toevoegen
   } else if (strcmp(receivebuffer, "!autonoom") == 0) {
     if (autonomemode == 0) {
-      message = "@nee";
+      uartSend("@nee");
     } else {
-      message = "@ja";
+      uartSend("@ja");
     }
+  } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
+    char output[4];
+    sprintf(output,"%d",bovengrenstemperatuur);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
+    char output[4];
+    sprintf(output,"%d",ondergrenstemperatuur);
+    uartSend(output);
   // Commando's die de staat aanpassen
   } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
     autonomemode = 0;
-    message = "@succes";
+    uartSend("@succes");
   } else if (strcmp(receivebuffer, "!autonoom=1") == 0) {
     autonomemode = 1;
-    message = "@succes";
+    uartSend("@succes");
+  } else if (strncmp(receivebuffer, "!bovengrenstemperatuur=", 23) == 0) {
+    bovengrenstemperatuur = commandArgumentParser();
+    uartSend("@succes");
+  } else if (strncmp(receivebuffer, "!ondergrenstemperatuur=", 23) == 0) {
+    ondergrenstemperatuur = commandArgumentParser();
+    uartSend("@succes");
   // Fout commando
   } else {
-    message = "@ongeldig";
+    uartSend("@ongeldig");
   }
-  uartSend(message);
 }
 
 // Niet blokkerende ontvanger
 void messagehandler() {
   if(uartStatus() != 0) { // Er staat iets in de buffer als het != 0 is
-    receivebuffer[bufferlocation] = uartReceive();
-    if (receivebuffer[bufferlocation] == '\r') {
-      receivebuffer[bufferlocation] = '\0'; // Strip de cr en vervang het met een nullbyte
+    if(uartReceive() == 0) { // Ontvangst is succesvol
       handleCommand();
-      bufferlocation = 0;
-      return;
-    } else if (bufferlocation >= receivebuffersize) {
-      unsigned char *message = "Bericht te groot voor de buffer";
-      uartSend(message);
-      bufferlocation = 0;
-      return;
+    } else { // Bericht is te groot voor de buffer, geef error terug
+      uartSend("@fout");
     }
-    bufferlocation++;
   }
 }
 
@@ -342,9 +397,9 @@ uint8_t main()
 {
   uart_init();
   SCH_Init_T1(); // Init de interrupts
+  init_welcome(); // Welkomspraatje en eventueel afhandelen eerste boot
   // Insert tasks here
-  SCH_Add_Task(print_about_serial,1000,0); // Welkomstpraatje na 1 sec weergeven
-  uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1200,1); // Vuur de messagehandler iedere 1ms af
+  uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
   //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
 
   SCH_Start(); // Zet de scheduler aan
