@@ -312,9 +312,9 @@ void init_welcome() {
     reboots = eeprom_read_word(&reboot_counter_ee);
     reboots++;
   }
-  char reboots_str[6]; // 16 bit nummer + nullbyte
-  snprintf(reboots_str, 6, "%u", reboots);
-  uartSend(strcat("Temperatuurmeetsensor v0.1\r\nBoot nummer: ", reboots_str));
+  unsigned char reboots_str[50];
+  snprintf(reboots_str, 50, "%s%u", "Temperatuurmeetsensor v0.1\r\nBoot nummer: ", reboots);
+  uartSend(reboots_str);
   eeprom_write_word(&reboot_counter_ee, reboots);
 }
 
@@ -356,11 +356,11 @@ void handleCommand() {
       uartSend("@ja");
     }
   } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
-    char output[4];
+    unsigned char output[4];
     sprintf(output,"%d",bovengrenstemperatuur);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
-    char output[4];
+    unsigned char output[4];
     sprintf(output,"%d",ondergrenstemperatuur);
     uartSend(output);
   // Commando's die de staat aanpassen
@@ -393,13 +393,31 @@ void messagehandler() {
   }
 }
 
-uint8_t main()
-{
+// Vraag temperatuur op
+int8_t get_temperature() {
+  ADCSRA |= _BV(ADSC);
+  loop_until_bit_is_clear(ADCSRA, ADSC);
+  return ((ADCH * (5000/256)) - 500) / 10;
+}
+
+void send_status_temperature() {
+  unsigned char temperature_str[50];
+  int8_t temperature_int = get_temperature();
+  snprintf(temperature_str, 50, "%s%i", "#temp=", temperature_int);
+  uartSend(temperature_str);
+}
+
+uint8_t main() {
   uart_init();
   SCH_Init_T1(); // Init de interrupts
-  init_welcome(); // Welkomspraatje en eventueel afhandelen eerste boot
+  // Init de ADC
+  ADMUX = (1<<REFS0)|(1<<ADLAR);
+  ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
+  // Welkomspraatje en eventueel afhandelen eerste boot
+  init_welcome();
   // Insert tasks here
   uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
+  uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,40000); //Stuur de temperatuur iedere 40 sec
   //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
 
   SCH_Start(); // Zet de scheduler aan
