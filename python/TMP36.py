@@ -23,12 +23,15 @@ def makeFig():
 while True:
     while (arduinoData.inWaiting() == 0):
         pass
-    arduinoString = arduinoData.readline(5).decode('utf-8')
-    temp_value = float(arduinoString)
-    temperatureC.append(temp_value)
-    x.append(datetime.datetime.now().strftime("%H:%M"))
-    drawnow(makeFig)
-    plt.pause(.000001)
-    cnt = cnt+1
-    if(cnt > 720):
-        temperatureC.pop(0)
+    arduinoString = arduinoData.readline().decode('utf-8')
+    print(arduinoString[1:5])
+    if arduinoString[1:5] == 'temp':
+        temp_value = float(arduinoString[6:])
+        print(arduinoString[6:])
+        temperatureC.append(temp_value)
+        x.append(datetime.datetime.now().strftime("%H:%M"))
+        drawnow(makeFig)
+        plt.pause(.000001)
+        cnt = cnt+1
+        if(cnt > 720):
+            temperatureC.pop(0)
