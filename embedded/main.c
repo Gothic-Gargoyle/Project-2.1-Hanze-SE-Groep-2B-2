@@ -8,6 +8,15 @@
 
 #define UBBRVAL 103 //9600 baud, pagina 243 van de datasheet
 
+//1638 led/key
+const uint8_t data = 0;
+const uint8_t clock = 1;
+const uint8_t strobe = 2;
+#define HIGH 0x1
+#define LOW  0x0
+
+
+
 uint8_t receivebuffersize = 50; // Ought to be enough for anybody
 uint8_t bufferlocation = 0;
 uint8_t autonomemode = 0; // Staat niet in autonome modus
@@ -16,9 +25,19 @@ unsigned char receivebuffer[sizeof(char) * 50];
 int8_t ondergrenstemperatuur = 0;
 int8_t bovengrenstemperatuur = 0;
 
+uint8_t bovengrenslichtintensiteit = 0;
+uint8_t ondergrenslichtintensiteit = 0;
+
+uint8_t ondergrensuitrol = 0;
+uint8_t bovengrensuitrol = 0;
+
+uint8_t schermuitrol = 0;
+uint8_t gewensteschermuitrol = 0;
+
 // EEPROM
 uint16_t reboot_counter_ee EEMEM = 0;
 uint16_t unique_marker EEMEM = 0; // Als deze niet op een magische waarde is gezet is het een nieuw apparaat
+
 
 // The array of tasks
 sTask SCH_tasks_G[SCH_MAX_TASKS];
@@ -357,11 +376,31 @@ void handleCommand() {
     }
   } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
     unsigned char output[4];
-    sprintf(output,"%d",bovengrenstemperatuur);
+    sprintf(output,"@bovengrenstemperatuur=%d",bovengrenstemperatuur);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
     unsigned char output[4];
-    sprintf(output,"%d",ondergrenstemperatuur);
+    sprintf(output,"@ondergrenstemperatuur=%d",ondergrenstemperatuur);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!schermuitrol") == 0) {
+    unsigned char output[4];
+    sprintf(output,"@schermuitrol=%d",schermuitrol);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!ondergrensuitrol") == 0) {
+    unsigned char output[4];
+    sprintf(output,"@ondergrensuitrol=%d",ondergrensuitrol);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!bovengrensuitrol") == 0) {
+    unsigned char output[4];
+    sprintf(output,"@bovengrensuitrol=%d",bovengrensuitrol);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!ondergrenslichtintensiteit") == 0) {
+    unsigned char output[4];
+    sprintf(output,"@ondergrenslichtintensiteit=%d",ondergrenslichtintensiteit);
+    uartSend(output);
+  } else if (strcmp(receivebuffer, "!bovengrenslichtintensiteit") == 0) {
+    unsigned char output[4];
+    sprintf(output,"@bovengrenslichtintensiteit=%d",bovengrenslichtintensiteit);
     uartSend(output);
   // Commando's die de staat aanpassen
   } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
@@ -375,6 +414,9 @@ void handleCommand() {
     uartSend("@succes");
   } else if (strncmp(receivebuffer, "!ondergrenstemperatuur=", 23) == 0) {
     ondergrenstemperatuur = commandArgumentParser();
+    uartSend("@succes");
+  } else if (strncmp(receivebuffer, "!schermuitrol=", 14) == 0) {
+    gewensteschermuitrol = commandArgumentParser();
     uartSend("@succes");
   // Fout commando
   } else {
@@ -394,30 +436,106 @@ void messagehandler() {
 }
 
 // Vraag temperatuur op
-int8_t get_temperature() {
+// Geeft 20.6 graden terug als 206
+int16_t get_temperature() {
+  // Selecteer Analoge input 0
+  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
   ADCSRA |= _BV(ADSC);
   loop_until_bit_is_clear(ADCSRA, ADSC);
-  return ((ADCH * (5000/256)) - 500) / 10;
+  return ((ADCH/255)*5000) - 500;
+}
+
+// Geef de lichtsterkte terug als 8 bit unsigned integer.
+uint8_t get_light() {
+  // Selecteer Analoge input 1
+  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
+  ADCSRA |= _BV(ADSC);
+  loop_until_bit_is_clear(ADCSRA, ADSC);
+  return ADCH ;
 }
 
 void send_status_temperature() {
   unsigned char temperature_str[50];
-  int8_t temperature_int = get_temperature();
-  snprintf(temperature_str, 50, "%s%i", "#temp=", temperature_int);
+  int16_t temperature_int = get_temperature();
+  snprintf(temperature_str, 50, "%s%d", "#temp=", temperature_int);
   uartSend(temperature_str);
 }
+
+//T1638 gerelateerde muek
+
+void write1638(uint8_t pin, uint8_t val)
+{
+    if (val == LOW) {
+        PORTB &= ~(_BV(pin)); // clear bit
+    } else {
+        PORTB |= _BV(pin); // set bit
+    }
+}
+
+void shiftOut1638 (uint8_t val)
+{
+    uint8_t i;
+    for (i = 0; i < 8; i++)  {
+        write1638(clock, LOW);   // bit valid on rising edge
+        write1638(data, val & 1 ? HIGH : LOW); // lsb first
+        val = val >> 1;
+        write1638(clock, HIGH);
+    }
+}
+
+void sendCommand1638(uint8_t value) {
+    write1638(strobe, LOW);
+    shiftOut1638(value);
+    write1638(strobe, HIGH);
+}
+
+void setup1638()
+{
+  DDRB=0xff; // set port B as output
+  sendCommand1638(0x89);  // activate and set brightness to medium
+}
+
+void reset1638()
+{
+  // clear memory - all 16 addresses
+  sendCommand1638(0x40); // set auto increment mode
+  write1638(strobe, LOW);
+  shiftOut1638(0xc0);   // set starting address to 0
+  for(uint8_t i = 0; i < 16; i++)
+  {
+    shiftOut1638(0x00);
+  }
+  write1638(strobe, HIGH);
+}
+
+void turnonled1638() {
+  uint8_t position = 0;
+  do {
+    position++;
+    sendCommand1638(0x44);
+    write1638(strobe, LOW);
+    shiftOut1638(0xC0 + (position << 1) + 1);
+    shiftOut1638(0x01);
+    write1638(strobe, HIGH);
+  } while (position < 8);
+}
+
 
 uint8_t main() {
   uart_init();
   SCH_Init_T1(); // Init de interrupts
   // Init de ADC
-  ADMUX = (1<<REFS0)|(1<<ADLAR);
   ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
+  // Init de 1638 LED/KEY
+  setup1638();
+  reset1638();
+  // Test 1638
+  turnonled1638();
   // Welkomspraatje en eventueel afhandelen eerste boot
   init_welcome();
   // Insert tasks here
   uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
-  uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,40000); //Stuur de temperatuur iedere 40 sec
+  uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,2000); //Stuur de temperatuur iedere 40 sec
   //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
 
   SCH_Start(); // Zet de scheduler aan
