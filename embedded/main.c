@@ -332,13 +332,9 @@ void init_welcome() {
     reboots++;
   }
   unsigned char reboots_str[50];
-  snprintf(reboots_str, 50, "%s%u", "Temperatuurmeetsensor v0.1\r\nBoot nummer: ", reboots);
+  snprintf(reboots_str, 50, "%s%u", "Moi eem\r\nBoot nummer: ", reboots);
   uartSend(reboots_str);
   eeprom_write_word(&reboot_counter_ee, reboots);
-}
-
-void print_test_serial() {
-  uartSend("Testbericht uit scheduler");
 }
 
 // Leest het argument uit de receivebuffer en geeft deze terug
@@ -368,7 +364,7 @@ void handleCommand() {
   unsigned char output[50];
   // Commando's die alleen een status update geven
   if (strcmp(receivebuffer, "!connectie-check") == 0) {
-    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter TODO: functie voor licht besturingsmeter toevoegen
+    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter
   } else if (strcmp(receivebuffer, "!autonoom") == 0) {
     if (autonomemode == 0) {
       uartSend("@nee");
@@ -515,7 +511,7 @@ void turnonled1638(uint8_t leds) {
     write1638(strobe, LOW);
     shiftOut1638(0xC0 + (position << 1) + 1);
     shiftOut1638(0x01);
-    write1638(strobe, HIGH);
+   write1638(strobe, HIGH);
     position++;
   } while (position < leds);
   do {
@@ -540,6 +536,18 @@ void passchermuitrolaan() {
   turnonled1638(schermuitrol / 12);
 }
 
+// Neemt beslissing over het aanpasen van de schermuitrol in autonome modus.
+void autonoomaanpassenschermuitrol() {
+  if (autonomemode == 1) {
+    int16_t temperatuur = get_temperature();
+    if (temperatuur > ondergrenstemperatuur && temperatuur < bovengrenstemperatuur) {
+      gewensteschermuitrol = 100;
+    } else {
+      gewensteschermuitrol = 0;
+    }
+  }
+}
+
 uint8_t main() {
   uart_init();
   SCH_Init_T1(); // Init de interrupts
@@ -554,8 +562,7 @@ uint8_t main() {
   uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
   uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,2000); //Stuur de temperatuur iedere 40 sec
   SCH_Add_Task(passchermuitrolaan,1000,2000); // Pas de schermuitrol leds iedere seconde aan
-  //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
-
+  SCH_Add_Task(autonoomaanpassenschermuitrol,10000,2000); // Vraag om de 10 seconde de temperatuur op en pas de schermuitrol aan
   SCH_Start(); // Zet de scheduler aan
   while (1) {
     SCH_Dispatch_Tasks(); // Werklus
