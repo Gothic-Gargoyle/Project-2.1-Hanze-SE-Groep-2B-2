@@ -73,8 +73,6 @@ class WindowController:
         # print(self.ports)
 
 
-        # init connection loop
-        self.connection_loop(1)
 
 
         # ##############################
