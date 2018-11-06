@@ -332,13 +332,9 @@ void init_welcome() {
     reboots++;
   }
   unsigned char reboots_str[50];
-  snprintf(reboots_str, 50, "%s%u", "Temperatuurmeetsensor v0.1\r\nBoot nummer: ", reboots);
+  snprintf(reboots_str, 50, "%s%u", "Moi eem\r\nBoot nummer: ", reboots);
   uartSend(reboots_str);
   eeprom_write_word(&reboot_counter_ee, reboots);
-}
-
-void print_test_serial() {
-  uartSend("Testbericht uit scheduler");
 }
 
 // Leest het argument uit de receivebuffer en geeft deze terug
@@ -349,7 +345,7 @@ int8_t commandArgumentParser() {
   // Kopieer de chars na het = teken over naar argument
   for (uint8_t i = 0;i < receivebuffersize;i++) {
     if (receivebuffer[i] == '=') {
-      while (receivebuffer[i] != '\0' && argumentpos < 4) {
+      while (receivebuffer[i] != '\0' && argumentpos < 3) {
         i++;
         argument[argumentpos] = receivebuffer[i];
         argumentpos++;
@@ -365,9 +361,10 @@ int8_t commandArgumentParser() {
 
 // Handel commando's af en stuur een reactie
 void handleCommand() {
+  unsigned char output[50];
   // Commando's die alleen een status update geven
   if (strcmp(receivebuffer, "!connectie-check") == 0) {
-    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter TODO: functie voor licht besturingsmeter toevoegen
+    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter
   } else if (strcmp(receivebuffer, "!autonoom") == 0) {
     if (autonomemode == 0) {
       uartSend("@nee");
@@ -375,31 +372,24 @@ void handleCommand() {
       uartSend("@ja");
     }
   } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
-    unsigned char output[4];
     sprintf(output,"@bovengrenstemperatuur=%d",bovengrenstemperatuur);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
-    unsigned char output[4];
     sprintf(output,"@ondergrenstemperatuur=%d",ondergrenstemperatuur);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!schermuitrol") == 0) {
-    unsigned char output[4];
     sprintf(output,"@schermuitrol=%d",schermuitrol);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrensuitrol") == 0) {
-    unsigned char output[4];
     sprintf(output,"@ondergrensuitrol=%d",ondergrensuitrol);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrensuitrol") == 0) {
-    unsigned char output[4];
     sprintf(output,"@bovengrensuitrol=%d",bovengrensuitrol);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenslichtintensiteit") == 0) {
-    unsigned char output[4];
     sprintf(output,"@ondergrenslichtintensiteit=%d",ondergrenslichtintensiteit);
     uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrenslichtintensiteit") == 0) {
-    unsigned char output[4];
     sprintf(output,"@bovengrenslichtintensiteit=%d",bovengrenslichtintensiteit);
     uartSend(output);
   // Commando's die de staat aanpassen
@@ -442,7 +432,12 @@ int16_t get_temperature() {
   ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
   ADCSRA |= _BV(ADSC);
   loop_until_bit_is_clear(ADCSRA, ADSC);
-  return ((ADCH/255)*5000) - 500;
+
+  uint16_t analogv = 0;
+  analogv = ((ADCH)*(5000/1024));
+  int16_t tempinc = 0;
+  tempinc = (((analogv)-500)/10);
+  return tempinc;
 }
 
 // Geef de lichtsterkte terug als 8 bit unsigned integer.
@@ -508,18 +503,50 @@ void reset1638()
   write1638(strobe, HIGH);
 }
 
-void turnonled1638() {
+// Zet de aangegeven hoeveelheid ledjes aan op het bordje om aan te geven hoe ver uitgeschoven het zonnescherm is.
+void turnonled1638(uint8_t leds) {
   uint8_t position = 0;
   do {
-    position++;
     sendCommand1638(0x44);
     write1638(strobe, LOW);
     shiftOut1638(0xC0 + (position << 1) + 1);
     shiftOut1638(0x01);
+   write1638(strobe, HIGH);
+    position++;
+  } while (position < leds);
+  do {
+    sendCommand1638(0x44);
+    write1638(strobe, LOW);
+    shiftOut1638(0xC0 + (position << 1) + 1);
+    shiftOut1638(0x00);
     write1638(strobe, HIGH);
+    position++;
   } while (position < 8);
+
 }
 
+// Kijkt naar de huidige en gewenste schermuitrol en past deze 1 stap aan
+// De bedoeling is om deze functie iedere seconde aan te roepen vanuit de scheduler
+void passchermuitrolaan() {
+  if (gewensteschermuitrol > schermuitrol) {
+    schermuitrol = schermuitrol + 12;
+  } else if (gewensteschermuitrol < schermuitrol) {
+    schermuitrol = schermuitrol - 12;
+  }
+  turnonled1638(schermuitrol / 12);
+}
+
+// Neemt beslissing over het aanpasen van de schermuitrol in autonome modus.
+void autonoomaanpassenschermuitrol() {
+  if (autonomemode == 1) {
+    int16_t temperatuur = get_temperature();
+    if (temperatuur > ondergrenstemperatuur && temperatuur < bovengrenstemperatuur) {
+      gewensteschermuitrol = 100;
+    } else {
+      gewensteschermuitrol = 0;
+    }
+  }
+}
 
 uint8_t main() {
   uart_init();
@@ -529,15 +556,13 @@ uint8_t main() {
   // Init de 1638 LED/KEY
   setup1638();
   reset1638();
-  // Test 1638
-  turnonled1638();
   // Welkomspraatje en eventueel afhandelen eerste boot
   init_welcome();
   // Insert tasks here
   uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
   uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,2000); //Stuur de temperatuur iedere 40 sec
-  //uint8_t test_id = SCH_Add_Task(print_test_serial,1200,200);
-
+  SCH_Add_Task(passchermuitrolaan,1000,2000); // Pas de schermuitrol leds iedere seconde aan
+  SCH_Add_Task(autonoomaanpassenschermuitrol,10000,2000); // Vraag om de 10 seconde de temperatuur op en pas de schermuitrol aan
   SCH_Start(); // Zet de scheduler aan
   while (1) {
     SCH_Dispatch_Tasks(); // Werklus
