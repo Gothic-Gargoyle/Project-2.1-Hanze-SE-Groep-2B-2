@@ -5,6 +5,8 @@ from pprint import *
 import serial
 import serial.tools.list_ports
 import time
+import sys
+from threading import Timer, Thread, Event
 
 title_config = {
     "font": ("Helvetica", 30)
@@ -50,24 +52,25 @@ class WindowController:
         # self.ser = serial.Serial('COM3', 9600, timeout=1)
         all_ports = serial.tools.list_ports.comports()
         self.ports = {}
+        self.port_states = {}
 
         for port in all_ports:
             name = port.device
             print(port)
             # self.ser = serial.Serial(name, 9600, timeout=1)
             self.ser = serial.Serial(name, 9600, timeout=1)
-            time.sleep(2)
+
+            self.show_loading_bar(2)
 
             response = self.handshake(name, self.ser)
             print(response)
             if response == "Temperatuurmeetsensor v0.1":
                 self.ports[name] = self.ser
+                self.port_states[name] = True
             else:
                 self.ser.close()
 
         # print(self.ports)
-
-
 
 
 
@@ -117,20 +120,16 @@ class WindowController:
         # fill tabs
         nr_of_ports = 4
         frames = dict([(name, Frame(tab_area)) for name, value in self.ports.items()])
-        print("frames:", frames)
 
-        for name, frame in frames.items():
-            self.creat_tab(tab_area, nb, frame, name)
-            self.tabs[name] = {"inputs": (), "buttons": ()}
-            self.tabs[name]["inputs"] = self.create_input_group(name, Frame(frame))
+        print(frames)
+
+        if not frames:
+            self.show_message("Er zijn geen rolluikbedieningsmodules gevonden.")
+        else:
+            self.populate_with_tabs(frames, tab_area, nb)
 
 
-            button_area = Frame(frame)
-            self.tabs[name]["buttons"] = self.create_buttons(name, frame)
 
-            # print(self.tabs[name]["buttons"])
-
-            button_area.pack()
 
         # inputs
 
@@ -178,26 +177,80 @@ class WindowController:
         for send in send_array:
             response = self.send(*send)
 
+    def show_message(self, message):
+        label = Label(self.root, text=message)
+        label.pack()
+        print(message)
+
+    def populate_with_tabs(self, frames, tab_area, nb):
+        for name, frame in frames.items():
+            self.creat_tab(tab_area, nb, frame, name)
+            self.tabs[name] = {"inputs": (), "buttons": ()}
+            self.tabs[name]["inputs"] = self.create_input_group(name, Frame(frame))
+
+            button_area = Frame(frame)
+            self.tabs[name]["buttons"] = self.create_buttons(name, frame)
+
+            # print(self.tabs[name]["buttons"])
+
+            button_area.pack()
+
     def handshake(self, port, ser):
         command = bytes('!connectie-check\r', encoding="utf-8")
         ser.write(command)
+        print("sending !connectie-check to", ser.name)
 
         return self.read(ser).strip()
 
+    def show_loading_bar(self, timeout):
+        length = 30
+        for i in range(length):
+            loading_bar = "loading:" + "/"*i
+            sys.stdout.write('\r'+loading_bar)
+            time.sleep(timeout / length)
+
+    def check_connection(self, port):
+        ports = [tuple(p) for p in list(serial.tools.list_ports.comports())]
+        print(ports)
+        for available_ports in ports:
+            name = available_ports[0]
+            print("name:", name, "port:", port)
+            if name == port:
+                return True
+            else:
+                print("Lost connection!")
+        return False
+
+    def reestablish_connection(self, port):
+        self.ports[port].open()
+
+        Timer(2, lambda: self.reestablish_connection_handshake(port))
+
+    def reestablish_connection_handshake(self, port):
+        response = self.handshake(port, self.ports[port])
+        print("restablishing connection:", response)
+        if response == "Temperatuurmeetsensor v0.1":
+            print("connection establised")
+            self.port_states[port] = True
+
     def send(self, port, key, value=None):
-        if value is None:
-            command = bytes("!" + str(key) + '\r', encoding="utf-8")
+        if self.check_connection(port):
+            if value is None:
+                command = bytes("!" + str(key) + '\r', encoding="utf-8")
+            else:
+                # print("sending to port: {}".format(send[0]), str(send[1])+"="+str(send[2]))
+                command = bytes("!" + str(key) + "=" + str(value) + '\r', encoding="utf-8")
+
+            # print(self.ports, port)
+            self.ports[port].flushInput()
+            self.ports[port].write(command)
+
+            response = self.read(self.ports[port]).strip()
+            print("sending command to port {}:".format(port), command, "response", response)
+            return response
         else:
-            # print("sending to port: {}".format(send[0]), str(send[1])+"="+str(send[2]))
-            command = bytes("!" + str(key) + "=" + str(value) + '\r', encoding="utf-8")
+            self.show_message("Sorry, er is iets mis gegaan.")
 
-        # print(self.ports, port)
-        self.ports[port].flushInput()
-        self.ports[port].write(command)
-
-        response = self.read(self.ports[port]).strip()
-        print("sending command to port {}:".format(port), command, "response", response)
-        return response
 
     # source: https://stackoverflow.com/questions/16470903/pyserial-2-6-specify-end-of-line-in-readline
     def read(self, ser):
@@ -212,7 +265,10 @@ class WindowController:
                     break
             else:
                 break
-
+        try:
+            line.decode(encoding="utf-8")
+        except:
+            return "@ongeldig\n"
         return line.decode(encoding="utf-8")
 
 
@@ -283,8 +339,12 @@ class WindowController:
                     self.send(port, key, value)
 
     def on_closing(self):
-        self.ser.close()
+
+        for port, ser in self.ports.items():
+            ser.close()
+
         print("closing program")
+        sys.exit()
 
 
 controller = WindowController()

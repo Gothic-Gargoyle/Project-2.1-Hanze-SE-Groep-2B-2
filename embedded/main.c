@@ -359,6 +359,28 @@ int8_t commandArgumentParser() {
   return argumentint;
 }
 
+// Leest het argument uit de receivebuffer en geeft deze terug
+int8_t commandArgumentParser() {
+  unsigned char argument[4]; // Kan maximaal uit 4 tekens bestaan
+  uint8_t argumentpos = 0;
+  int8_t argumentint;
+  // Kopieer de chars na het = teken over naar argument
+  for (uint8_t i = 0;i < receivebuffersize;i++) {
+    if (receivebuffer[i] == '=') {
+      while (receivebuffer[i] != '\0' && argumentpos < 4) {
+        i++;
+        argument[argumentpos] = receivebuffer[i];
+        argumentpos++;
+      }
+      argument[argumentpos] = '\0';
+      break; // Stop het kopieren
+    }
+  }
+  // Converteer argument naar int
+  argumentint = atoi(argument);
+  return argumentint;
+}
+
 // Handel commando's af en stuur een reactie
 void handleCommand() {
   unsigned char output[50];
