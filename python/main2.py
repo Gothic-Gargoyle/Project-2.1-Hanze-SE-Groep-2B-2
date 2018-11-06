@@ -5,6 +5,7 @@ from threading import Timer, Thread, Event
 import serial
 import serial.tools.list_ports
 import time
+import datetime
 
 
 class WindowController:
@@ -18,6 +19,10 @@ class WindowController:
         self.root = Tk()
         self.tk_init()
         self.root.protocol("WM_DELETE_WINDOW", self.close_program)
+
+        self.temp_cnt = 0
+        self.temp_list = []
+        self.temp_time = []
 
         temperature = '^\-[0-9][0-9]?$|^[0-9][0-9]?$|^\-$'  # -99 to +99 or - for infinite
         percentage = '^[0-9][0-9]?$|^100$'  # 0 - 100
@@ -109,8 +114,21 @@ class WindowController:
             label.pack()
 
     def temperature_loop(self, port):
-        print("henk", port)
-        Timer(1, lambda: self.temperature_loop(port)).start()
+        #print(self.temp_list, port)
+        arduinoString = port.read()
+        while (arduinoString == 0):
+            pass
+        print(arduinoString)
+        print(self.temp_list)
+        s = arduinoString.split('=')
+        if s[0] == '#temp':
+            temp_value = float(s[1])
+            self.temp_list.append(temp_value)
+            self.temp_time.append(datetime.datetime.now().strftime("%H:%M:%S"))
+            self.temp_cnt = self.temp_cnt + 1
+            if(self.temp_cnt > 720):
+                self.temp_list.pop(0)
+        Timer(2, lambda: self.temperature_loop(port)).start()
 
     # takes a list of ports and creates tabs for it.
     def create_tabs_for_ports(self, root, tab_area, ports):
