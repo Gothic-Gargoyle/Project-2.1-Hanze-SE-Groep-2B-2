@@ -9,7 +9,7 @@ class Range:
         # init
         self.root = root
         self.id = slug
-        self.label = label
+        self.label_text = label
         self.row = row
         self.column = column
         self.pattern = pattern
@@ -18,7 +18,7 @@ class Range:
         self.tcnf = tcnf
 
         # create label
-        self.label = Label(self.root, text=self.label, **self.tcnf)
+        self.label = Label(self.root, text=self.label_text, **self.tcnf)
         self.label.grid(row=row, column=column)
 
         # create entries
@@ -37,7 +37,7 @@ class Range:
         print(self.entries)
         return_entries = []
         for slug, entry in self.entries.items():
-            return_entries.append(entry.get())
+            return_entries.append((slug, entry.get()))
 
         return tuple(return_entries)
 
@@ -50,17 +50,33 @@ class Range:
     def validate(self):
         entry_values = {}
         value = True
-        for i in range(len(self.entries)):
-            entry = self.entries[i]
+        for slug, entry in self.entries.items():
+            print(slug, entry)
             entry.config(background="white")
             pattern = re.compile(self.pattern)
             if not re.match(pattern, entry.get()):
                 entry.config(background="red")
                 value = False
             else:
-                entry_values[self.id[i]] = entry.get()
+                entry_values[slug] = entry.get()
 
         return False if value is False else entry_values
+
+
+class FieldButton:
+    def __init__(self, root, port, text, fields, row=0):
+        self.port = port
+        self.fields = fields
+        button = Button(root, text=text, command=lambda: self.callback())
+        button.grid(row=row)
+
+    def callback(self):
+        values = []
+        for field in self.fields:
+            if field.validate():
+                entries = field.get()
+                for entry in entries:
+                    self.port.send(entry[0], entry[1])
 
 
 class ActionButton:
@@ -71,7 +87,7 @@ class ActionButton:
         self.button.pack()
 
     def callback(self):
-        for command in self.commands:
-            self.port.send(command)
+        for command, value in self.commands.items():
+            self.port.send(command, value)
 
 

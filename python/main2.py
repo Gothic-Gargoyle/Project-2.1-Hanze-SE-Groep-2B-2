@@ -1,5 +1,4 @@
-from python.field import Range
-from python.field import ActionButton
+from python.field import *
 from tkinter import *
 from tkinter.ttk import Notebook
 from threading import Timer, Thread, Event
@@ -65,6 +64,9 @@ class WindowController:
         ]
 
         # PORTCONTROLLER
+
+        self.fields = {}
+
         self.ports = {}
         self.port_controller = PortController(self.ports, callback=self.update, timeout=1000)
 
@@ -77,19 +79,30 @@ class WindowController:
         self.root.title("bedieningspaneel")
 
     def update(self):
+        print("redrawing tabs")
         try:
             self.tab_area.destroy()
         except:
+            print("cannot destoy tab area")
             pass
+        print(self.ports, len(self.ports))
+        if len(self.ports) > 0:
 
-        self.tab_area = Notebook()
-        self.tab_area.pack()
+            self.tab_area = Notebook()
+            self.tab_area.pack()
 
-        self.tabs = self.create_tabs_for_ports(self.root, self.tab_area, self.ports)
+            self.tabs = self.create_tabs_for_ports(self.root, self.tab_area, self.ports)
 
-        self.populate_tabs(self.tabs, self.field_list)
+            self.populate_tabs(self.tabs, self.field_list)
 
-        self.add_buttons_to_tabs(self.tabs, self.buttons_list)
+            self.add_buttons_to_tabs(self.tabs, self.buttons_list)
+        else:
+            print("no comports found")
+            self.tab_area = Frame()
+            self.tab_area.pack()
+
+            label = Label(self.tab_area, text="geen rolluiken gevonden")
+            label.pack()
 
     # takes a list of ports and creates tabs for it.
     def create_tabs_for_ports(self, root, tab_area, ports):
@@ -102,6 +115,7 @@ class WindowController:
 
                     tab_area.add(tab_frame, text=name)
 
+
             tab_area.pack(expand=1, fill="both")
 
         return tab_frames
@@ -110,23 +124,38 @@ class WindowController:
     def populate_tabs(self, tabs, field_list):
         for port, tab in tabs.items():
             index = 0
+            fields = []
             for field_settings in field_list:
-                print(tab, field_settings)
-                field = Range(tab, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index)
-
+                input_area = Frame(tab)
+                field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index)
+                input_area.pack()
                 values = self.get_fields(port, field_settings["fields"])
                 field.set(values)
+                fields.append(field)
+
                 index += 1
-        print("tabs:", tabs)
+
+            self.fields[port] = fields
+            print(self.fields)
+
+            button_area = Frame(tab)
+            fields = [field["fields"] for field in field_list]
+            print(fields)
+            update_button = FieldButton(button_area, self.ports[port], "update", self.fields[port], row=len(field_list) + 1)
+            button_area.pack()
 
     def add_buttons_to_tabs(self, tabs, buttons_list):
         for port, tab in tabs.items():
             index = 0
             for button_settings in buttons_list:
-                print(tab, button_settings)
+                port_obj = self.ports[port]
                 button_area = Frame(tab)
-                button = ActionButton(button_area, port, button_settings["text"], commands=button_settings["commands"])
+                button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"])
                 button_area.pack()
+
+    # gets values from input fields
+    def get_input_fields(self, fields):
+        pass
 
     # takes a port and a list of fields. returns values the value stored on the arduino
     def get_fields(self, port, fields):
@@ -140,7 +169,6 @@ class WindowController:
     def close_program(self):
         print("closing ports")
         for name, port in self.ports.items():
-            print(port)
             port["serial"].close()
         print("closing program")
         sys.exit()
@@ -158,9 +186,8 @@ class Port:
         self.is_valid = is_valid
         self.is_active = is_active
 
-    def send(self, command, value):
+    def send(self, command, value=None):
         if value is not None:
-            print("value is set")
             print("sending command to {}".format(self.port), "!{0}={1}\r".format(command, value))
             self.serial.write(bytes("!{0}={1}\r".format(command, value), encoding="utf-8"))
         else:
@@ -168,16 +195,13 @@ class Port:
             self.serial.write(bytes("!{0}\r".format(command), encoding="utf-8"))
 
         while True:
-            print("reading")
-            response = self.read()
+            response = self.read(command)
             if self.is_response(response):
-                return response
-
-
+                return response.split("=")[-1]
 
     def is_response(self, response):
         if len(response) > 0:
-            if response[0] == "@":
+            if "@" == response[0]:
                 return True
         return False
 
@@ -196,7 +220,7 @@ class Port:
         return True if self.read() == valid else False
 
     # returns readdata from a device on a given comport
-    def read(self):
+    def read(self, command=None):
         eol = b'\r'
         leneol = len(eol)
         line = bytearray()
@@ -209,21 +233,25 @@ class Port:
             else:
                 break
         try:
-            print(line)
             line.decode(encoding="utf-8")
-            print(line)
         except:
             print("cannot decode response")
             return "@ongeldig\r"
         response = line.decode(encoding="utf-8").strip()
+        # if command is not None:
+        #     print("command is set")
+        #     response = response.split("=")
+        #     if response[0] == "@" + command:
+        #         print("@" + command, "==", response[0])
         return response
 
 
 class PortController:
 
-    def __init__(self, ports, callback=None, timeout=.01):
+    def __init__(self, ports, callback=None, timeout=1000):
         self.ports = ports
         self.connection_loop(timeout / 1000, callback)
+        callback()
 
     def connection_loop(self, timeout, callback):
         ports = self.get_available_ports()
@@ -237,11 +265,11 @@ class PortController:
         ports_to_add = self.get_unused_ports(ports)
         self.add_ports(ports_to_add)
 
-        print("ports_to_disable:", ports_to_disable, "ports_to_enable:", ports_to_enable, "ports_to_add:", ports_to_add)
 
         # if the port configuration has changed
         if ports_to_enable or ports_to_disable or ports_to_add:
             callback()
+
 
         # restart check in timeout
         Timer(timeout, lambda: self.connection_loop(timeout, callback)).start()
