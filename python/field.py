@@ -64,10 +64,11 @@ class Range:
 
 
 class FieldButton:
-    def __init__(self, root, port, text, fields, row=0):
+    def __init__(self, root, port, text, fields, row=0, cnf={}):
         self.port = port
         self.fields = fields
-        button = Button(root, text=text, command=lambda: self.callback())
+        print(cnf)
+        button = Button(root, text=text, command=lambda: self.callback(), **cnf)
         button.grid(row=row)
 
     def callback(self):
@@ -80,10 +81,10 @@ class FieldButton:
 
 
 class ActionButton:
-    def __init__(self, root, port, text, commands=None):
+    def __init__(self, root, port, text, commands=None, cnf={}):
         self.port = port
         self.commands = commands
-        self.button = Button(root, text=text, command=lambda: self.callback())
+        self.button = Button(root, text=text, command=lambda: self.callback(), **cnf)
         self.button.pack()
 
     def callback(self):

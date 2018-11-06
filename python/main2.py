@@ -1,4 +1,5 @@
 from python.field import *
+from python.graph import *
 from tkinter import *
 from tkinter.ttk import Notebook
 from threading import Timer, Thread, Event
@@ -6,6 +7,40 @@ import serial
 import serial.tools.list_ports
 import time
 import datetime
+
+title_config = {
+    "font": ("Helvetica", 30)
+}
+input_area_config = {
+    "padx": 5,
+    "pady": 5,
+    "side": TOP,
+    "expand": True
+}
+button_config = {
+    "bg": "#393939",
+    "bd": 0,
+    "padx": 20,
+    "pady": 2,
+    "fg": "white",
+    "activebackground": "#212121",
+    "activeforeground": "white",
+    "font": ("Helvetica", 12)
+}
+text_config = {
+    "font": ("Helvetica", 12)
+}
+input_config = {
+    "bg": "white",
+    "bd": 0,
+    "fg": "black",
+    "font": ("Helvetica", 12)
+}
+button_area_config = {
+    "side": LEFT,
+    "padx": 5,
+    "pady": 5
+}
 
 
 class WindowController:
@@ -19,10 +54,6 @@ class WindowController:
         self.root = Tk()
         self.tk_init()
         self.root.protocol("WM_DELETE_WINDOW", self.close_program)
-
-        self.temp_cnt = 0
-        self.temp_list = []
-        self.temp_time = []
 
         temperature = '^\-[0-9][0-9]?$|^[0-9][0-9]?$|^\-$'  # -99 to +99 or - for infinite
         percentage = '^[0-9][0-9]?$|^100$'  # 0 - 100
@@ -71,6 +102,7 @@ class WindowController:
         # PORTCONTROLLER
 
         self.fields = {}
+        self.graphs = {}
 
         self.ports = {}
         self.port_controller = PortController(self.ports, callback=self.update, timeout=1000)
@@ -84,6 +116,7 @@ class WindowController:
         self.root.title("bedieningspaneel")
 
     def update(self):
+
         print("redrawing tabs")
         try:
             self.tab_area.destroy()
@@ -91,6 +124,9 @@ class WindowController:
             print("cannot destoy tab area")
             pass
         print(self.ports, len(self.ports))
+
+
+
         if len(self.ports) > 0:
 
             self.tab_area = Notebook()
@@ -102,8 +138,22 @@ class WindowController:
 
             self.add_buttons_to_tabs(self.tabs, self.buttons_list)
 
+            for name, graph in self.graphs.items():
+                if graph.timer_active:
+                    graph.stop()
+
             for name, port in self.ports.items():
-                self.temperature_loop(port)
+                print("creating graph at {}".format(name))
+
+
+
+                graph = Graph(port, 5)
+                self.graphs[name] = graph
+                if name not in self.ports:
+                    self.graphs[name].stop()
+                else:
+                    self.graphs[name].start()
+
 
         else:
             print("no comports found")
@@ -113,24 +163,7 @@ class WindowController:
             label = Label(self.tab_area, text="geen rolluiken gevonden")
             label.pack()
 
-    def temperature_loop(self, port):
-        #print(self.temp_list, port)
-        arduinoString = port.read()
-        while (arduinoString == 0):
-            pass
-        print(arduinoString)
-        print(self.temp_list)
-        s = arduinoString.split('=')
-        if s[0] == '#temp':
-            temp_value = float(s[1])
-            self.temp_list.append(temp_value)
-            self.temp_time.append(datetime.datetime.now().strftime("%H:%M:%S"))
-            self.temp_cnt = self.temp_cnt + 1
-            if(self.temp_cnt > 720):
-                self.temp_list.pop(0)
-        Timer(2, lambda: self.temperature_loop(port)).start()
 
-    # takes a list of ports and creates tabs for it.
     def create_tabs_for_ports(self, root, tab_area, ports):
         tab_frames = {}
         if ports:
@@ -153,7 +186,7 @@ class WindowController:
             fields = []
             for field_settings in field_list:
                 input_area = Frame(tab)
-                field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index)
+                field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
                 input_area.pack()
                 values = self.get_fields(port, field_settings["fields"])
                 field.set(values)
@@ -176,8 +209,8 @@ class WindowController:
             for button_settings in buttons_list:
                 port_obj = self.ports[port]
                 button_area = Frame(tab)
-                button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"])
-                button_area.pack()
+                button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"], cnf=button_config)
+                button_area.pack(**button_area_config)
 
     # gets values from input fields
     def get_input_fields(self, fields):
@@ -201,7 +234,6 @@ class WindowController:
 
     def send(self, port, command, value=None):
         return self.ports[port].send(command, value)
-
 
 
 class Port:
