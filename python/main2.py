@@ -96,6 +96,10 @@ class WindowController:
             self.populate_tabs(self.tabs, self.field_list)
 
             self.add_buttons_to_tabs(self.tabs, self.buttons_list)
+
+            for name, port in self.ports.items():
+                self.temperature_loop(port)
+
         else:
             print("no comports found")
             self.tab_area = Frame()
@@ -103,6 +107,10 @@ class WindowController:
 
             label = Label(self.tab_area, text="geen rolluiken gevonden")
             label.pack()
+
+    def temperature_loop(self, port):
+        print("henk", port)
+        Timer(1, lambda: self.temperature_loop(port)).start()
 
     # takes a list of ports and creates tabs for it.
     def create_tabs_for_ports(self, root, tab_area, ports):
@@ -169,7 +177,7 @@ class WindowController:
     def close_program(self):
         print("closing ports")
         for name, port in self.ports.items():
-            port["serial"].close()
+            port.close()
         print("closing program")
         sys.exit()
 
@@ -207,7 +215,7 @@ class Port:
 
     def handshake_sequence(self):
         for i in range(10):
-            valid = self.handshake('!connectie-check\r', "Temperatuurmeetsensor v0.1")
+            valid = self.handshake('!connectie-check\r', "Moi eem")
             if valid:
                 return True
         return False
