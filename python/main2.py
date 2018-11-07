@@ -173,11 +173,13 @@ class WindowController:
     def add_buttons_to_tabs(self, tabs, buttons_list):
         for port, tab in tabs.items():
             index = 0
+            button_area = Frame(tab)
             for button_settings in buttons_list:
                 port_obj = self.ports[port]
-                button_area = Frame(tab)
                 button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"])
-                button_area.pack()
+            button = Button(button_area, text='Grafiek openen')
+            button.pack()
+            button_area.pack()
 
     # gets values from input fields
     def get_input_fields(self, fields):
