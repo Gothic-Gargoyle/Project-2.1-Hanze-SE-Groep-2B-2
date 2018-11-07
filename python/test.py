@@ -1,4 +1,6 @@
-import serial
-import serial.tools.list_ports
+from tkinter import *
 
-ser
+root = Tk()
+root.title("test_frame")
+
+root.mainloop()
