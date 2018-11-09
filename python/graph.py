@@ -39,7 +39,7 @@ class Graph:
                 # print(len(self.temp_list))
                 self.temp_time.append(datetime.datetime.now().strftime("%H:%M:%S"))
                 self.temp_cnt = self.temp_cnt + 1
-                if self.temp_cnt > 10:
+                if self.temp_cnt > 180:
                     print("popping temp list", self.temp_cnt)
                     self.temp_list.pop(0)
                     self.temp_time.pop(0)
