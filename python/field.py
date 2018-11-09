@@ -26,9 +26,9 @@ class Range:
         for i in range(2):
             entry_container = Frame(self.root)
             entry = Entry(entry_container, **self.cnf)
-            entry.pack(**self.pcnf)
-            self.entries[self.id[i]] = entry
+            entry.pack()
             entry_container.grid(row=row, column=column+i+1)
+            self.entries[self.id[i]] = entry
 
         print(self.entries)
 
@@ -69,7 +69,7 @@ class FieldButton:
         self.fields = fields
         print(cnf)
         button = Button(root, text=text, command=lambda: self.callback(), **cnf)
-        button.grid(row=row)
+        button.grid(row=row, column=2)
 
     def callback(self):
         values = []
