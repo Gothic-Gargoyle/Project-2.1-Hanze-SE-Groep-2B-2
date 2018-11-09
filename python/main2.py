@@ -102,7 +102,8 @@ class WindowController:
         # PORTCONTROLLER
 
         self.fields = {}
-        self.graphs = {}
+        self.graphs = {}        
+        self.graph_buttons = {}
 
         self.ports = {}
         self.port_controller = PortController(self.ports, callback=self.update, timeout=1000)
@@ -145,15 +146,12 @@ class WindowController:
             for name, port in self.ports.items():
                 print("creating graph at {}".format(name))
 
-
-
-                graph = Graph(port, 5)
+                graph = Graph(port, self.ports, 5)
                 self.graphs[name] = graph
                 if name not in self.ports:
                     self.graphs[name].stop()
                 else:
                     self.graphs[name].start()
-
 
         else:
             print("no comports found")
@@ -162,8 +160,9 @@ class WindowController:
 
             label = Label(self.tab_area, text="geen rolluiken gevonden")
             label.pack()
+            
 
-
+    # takes a list of ports and creates tabs for it.
     def create_tabs_for_ports(self, root, tab_area, ports):
         tab_frames = {}
         if ports:
@@ -209,17 +208,18 @@ class WindowController:
             button_area = Frame(tab)
             for button_settings in buttons_list:
                 port_obj = self.ports[port]
-<<<<<<< HEAD
-                button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"])
-            button = Button(button_area, text='Grafiek openen')
-            button.pack()
-            button_area.pack()
-=======
-                button_area = Frame(tab)
                 button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"], cnf=button_config)
-                button_area.pack(**button_area_config)
->>>>>>> master
+            print('YA YEET {}'.format(port))
+            graph_button = GraphButton(button_area, self.graphs, port, "open graph", cnf=button_config)
+            button_area.pack()
 
+    # def open_graph(self, port):
+    #     print(self.ports)
+    #     # print(self.graphs[port].temp_list)
+    #     for port, graph in self.graphs.items():
+    #         print(self.ports[port])
+    #         self.graphs[port].show()
+    
     # gets values from input fields
     def get_input_fields(self, fields):
         pass

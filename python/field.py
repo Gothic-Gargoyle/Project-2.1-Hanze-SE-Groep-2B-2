@@ -92,3 +92,12 @@ class ActionButton:
             self.port.send(command, value)
 
 
+class GraphButton:
+    def __init__(self, root, graphs, port, text, cnf={}):
+        self.port = port
+        self.graphs = graphs
+        self.button = Button(root, text=text, command=lambda: self.callback(), **cnf)
+        self.button.pack()
+
+    def callback(self):
+        self.graphs[self.port].show()
