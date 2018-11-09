@@ -1,4 +1,4 @@
-include "main.h"
+#include "main.h"
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
@@ -10,7 +10,8 @@ include "main.h"
 #define UBBRVAL 103 //9600 baud, pagina 243 van de datasheet
 
 // PINOUT aansluiting apparaten op Arduino
-// TODO: Temperatuur/licht sensor
+// Temperatuur = PC0 (A0)
+// Lichtsenson = PC1 (A1)
 // TM1638
 // Data     = PB0 (8)
 // Clock    = PB1 (9)
@@ -35,7 +36,7 @@ volatile uint16_t echo = 0;
 uint8_t receivebuffersize = 50; // Ought to be enough for anybody
 uint8_t bufferlocation = 0;
 uint8_t autonomemode = 0; // Staat niet in autonome modus
-unsigned char receivebuffer[sizeof(char) * 50];
+unsigned char receivebuffer[sizeof(unsigned char) * 50];
 
 int16_t ondergrenstemperatuur = 0;
 int16_t bovengrenstemperatuur = 0;
@@ -375,14 +376,14 @@ void init_welcome() {
 }
 
 // Leest het argument uit de receivebuffer en geeft deze terug
-int8_t commandArgumentParser() {
-  unsigned char argument[4]; // Kan maximaal uit 4 tekens bestaan
+int16_t commandArgumentParser() {
+  unsigned char argument[10]; // Kan maximaal uit 9 tekens bestaan
   uint8_t argumentpos = 0;
-  int8_t argumentint;
+  int16_t argumentint;
   // Kopieer de chars na het = teken over naar argument
   for (uint8_t i = 0;i < receivebuffersize;i++) {
     if (receivebuffer[i] == '=') {
-      while (receivebuffer[i] != '\0' && argumentpos < 3) {
+      while (receivebuffer[i] != '\0' && argumentpos < 9) {
         i++;
         argument[argumentpos] = receivebuffer[i];
         argumentpos++;
@@ -416,63 +417,70 @@ uint16_t get_distancehc06() {
 }
 // Einde HC-05 ultrasoonsensor muek
 
+// Geef de lichtsterkte terug als 8 bit unsigned integer.
+uint8_t get_light() {
+  // Selecteer Analoge input 1
+  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
+  ADCSRA |= _BV(ADSC);
+  loop_until_bit_is_clear(ADCSRA, ADSC);
+  uint8_t percentage;
+  percentage = ((uint32_t)ADCH*100)/256;
+  return percentage;
+}
+
 // Handel commando's af en stuur een reactie
 void handleCommand() {
   unsigned char output[50];
   // Commando's die alleen een status update geven
   if (strcmp(receivebuffer, "!connectie-check") == 0) {
-    uartSend("@connectie-check=succes");
+    snprintf(output, 50, "%s", "@connectie-check=succes");
   } else if (strcmp(receivebuffer, "!autonoom") == 0) {
     if (autonomemode == 0) {
-      uartSend("@autonoom=0");
+      snprintf(output, 50, "%s", "@autonoom=0");
     } else {
-      uartSend("@autonoom=1");
+      snprintf(output, 50, "%s", "@autonoom=1");
     }
   } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
     sprintf(output,"@bovengrenstemperatuur=%d",bovengrenstemperatuur);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
     sprintf(output,"@ondergrenstemperatuur=%d",ondergrenstemperatuur);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!schermuitrol") == 0) {
     sprintf(output,"@schermuitrol=%d",schermuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrensuitrol") == 0) {
     sprintf(output,"@ondergrensuitrol=%d",ondergrensuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrensuitrol") == 0) {
     sprintf(output,"@bovengrensuitrol=%d",bovengrensuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenslichtintensiteit") == 0) {
     sprintf(output,"@ondergrenslichtintensiteit=%d",ondergrenslichtintensiteit);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrenslichtintensiteit") == 0) {
     sprintf(output,"@bovengrenslichtintensiteit=%d",bovengrenslichtintensiteit);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!afstand") == 0) {
     uint16_t distance_int = get_distancehc06();
     snprintf(output, 50, "%s%d", "#afstand=", distance_int);
-    uartSend(output);
+  } else if (strcmp(receivebuffer, "!licht") == 0) {
+    uint8_t light_int = get_light();
+    snprintf(output, 50, "%s%u", "@licht=", light_int);
   // Commando's die de staat aanpassen
   } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
     autonomemode = 0;
-    uartSend("@autonoom=succes");
+    snprintf(output, 50, "%s", "@autonoom=succes");
   } else if (strcmp(receivebuffer, "!autonoom=1") == 0) {
     autonomemode = 1;
-    uartSend("@autonoom=succes");
+    snprintf(output, 50, "%s", "@autonoom=succes");
   } else if (strncmp(receivebuffer, "!bovengrenstemperatuur=", 23) == 0) {
     bovengrenstemperatuur = commandArgumentParser();
-    uartSend("@bovengrenstemperatuur=succes");
+    snprintf(output, 50, "%s", "@bovengrenstemperatuur=succes");
   } else if (strncmp(receivebuffer, "!ondergrenstemperatuur=", 23) == 0) {
     ondergrenstemperatuur = commandArgumentParser();
-    uartSend("@bovengrenstemperatuur=succes");
+    snprintf(output, 50, "%s", "@ondergrenstemperatuur=succes");
   } else if (strncmp(receivebuffer, "!schermuitrol=", 14) == 0) {
     gewensteschermuitrol = commandArgumentParser();
-    uartSend("@bovengrenstemperatuur=succes");
+    snprintf(output, 50, "%s", "@schermuitrol=succes");
   // Fout commando
   } else {
-    uartSend("@ongeldig");
+    snprintf(output, 50, "%s", "@ongeldig");
   }
+  uartSend(output);
 }
 
 // Niet blokkerende ontvanger
@@ -499,15 +507,6 @@ int16_t get_temperature() {
   int16_t tempinc = 0;
   tempinc = (analogv - 500);
   return tempinc;
-}
-
-// Geef de lichtsterkte terug als 8 bit unsigned integer.
-uint8_t get_light() {
-  // Selecteer Analoge input 1
-  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
-  ADCSRA |= _BV(ADSC);
-  loop_until_bit_is_clear(ADCSRA, ADSC);
-  return ADCH ;
 }
 
 void send_status_temperature() {
