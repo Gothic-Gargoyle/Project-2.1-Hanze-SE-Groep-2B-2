@@ -1,4 +1,4 @@
-#include "main.h"
+include "main.h"
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
@@ -37,8 +37,8 @@ uint8_t bufferlocation = 0;
 uint8_t autonomemode = 0; // Staat niet in autonome modus
 unsigned char receivebuffer[sizeof(char) * 50];
 
-int8_t ondergrenstemperatuur = 0;
-int8_t bovengrenstemperatuur = 0;
+int16_t ondergrenstemperatuur = 0;
+int16_t bovengrenstemperatuur = 0;
 
 uint8_t bovengrenslichtintensiteit = 0;
 uint8_t ondergrenslichtintensiteit = 0;
@@ -283,7 +283,7 @@ ISR(INT0_vect) {
     distancewanted = 0;
   } else if(inprogress == 1 && ((PIND & (1<<PD2)) == 0)) {
     TCCR1B &= ~(1<<CS11); // Disable Timer
-    echo = TCNT1; // Count echoInches
+    echo = TCNT1; // Count echo
     inprogress = 0;
     resultready = 1;
   }
@@ -490,14 +490,14 @@ void messagehandler() {
 // Geeft 20.6 graden terug als 206
 int16_t get_temperature() {
   // Selecteer Analoge input 0
-  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
+  ADMUX = (1<<REFS0)|(0<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
   ADCSRA |= _BV(ADSC);
   loop_until_bit_is_clear(ADCSRA, ADSC);
 
   uint16_t analogv = 0;
-  analogv = ((ADCH)*(5000/1024));
+  analogv = ((uint32_t)ADC*5000)/1024;
   int16_t tempinc = 0;
-  tempinc = (((analogv)-500)/10);
+  tempinc = (analogv - 500);
   return tempinc;
 }
 
@@ -518,8 +518,7 @@ void send_status_temperature() {
 }
 
 // TM1638 gerelateerde muek
-void write1638(uint8_t pin, uint8_t val)
-{
+void write1638(uint8_t pin, uint8_t val) {
     if (val == LOW) {
         PORTB &= ~(_BV(pin)); // clear bit
     } else {
@@ -527,8 +526,7 @@ void write1638(uint8_t pin, uint8_t val)
     }
 }
 
-void shiftOut1638 (uint8_t val)
-{
+void shiftOut1638 (uint8_t val) {
     uint8_t i;
     for (i = 0; i < 8; i++)  {
         write1638(clock, LOW); // bit valid on rising edge
@@ -602,8 +600,6 @@ void autonoomaanpassenschermuitrol() {
     }
   }
 }
-
-
 
 uint8_t main() {
   uart_init();
