@@ -20,7 +20,7 @@ class Graph:
     def temperature_loop(self):
         if self.timer_active:
             # print(self.temp_list, port)
-            arduinoString = self.port.read()
+            arduinoString = self.port.read("temp")
             print(self, self.port.serial.name, arduinoString)
             # print(port.serial.name, self.temp_list)
             s = arduinoString.split('=')

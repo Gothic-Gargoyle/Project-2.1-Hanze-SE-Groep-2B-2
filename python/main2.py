@@ -13,9 +13,12 @@ title_config = {
 }
 input_area_config = {
     "padx": 5,
-    "pady": 5,
+    "pady": 100
+}
+input_area_pack_config = {
     "side": TOP,
-    "expand": True
+    "expand": True,
+    "fill": BOTH,
 }
 button_config = {
     "bg": "#393939",
@@ -31,10 +34,15 @@ text_config = {
     "font": ("Helvetica", 12)
 }
 input_config = {
-    "bg": "white",
     "bd": 0,
     "fg": "black",
-    "font": ("Helvetica", 12)
+    "font": ("Helvetica", 12),
+}
+
+input_container_config = {
+    "padx": 10,
+    "pady": 10,
+    "bg": "white",
 }
 button_area_config = {
     "side": LEFT,
@@ -129,8 +137,8 @@ class WindowController:
 
         if len(self.ports) > 0:
 
-            self.tab_area = Notebook()
-            self.tab_area.pack()
+            self.tab_area = Notebook(self.root)
+            self.tab_area.pack(fill=BOTH, expand=1)
 
             self.tabs = self.create_tabs_for_ports(self.root, self.tab_area, self.ports)
 
@@ -158,7 +166,7 @@ class WindowController:
         else:
             print("no comports found")
             self.tab_area = Frame()
-            self.tab_area.pack()
+            self.tab_area.pack(fill=BOTH, expand=1)
 
             label = Label(self.tab_area, text="geen rolluiken gevonden")
             label.pack()
@@ -184,15 +192,16 @@ class WindowController:
         for port, tab in tabs.items():
             index = 0
             fields = []
+            input_area = Frame(tab, **input_area_config)
             for field_settings in field_list:
-                input_area = Frame(tab)
                 field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
-                input_area.pack()
                 values = self.get_fields(port, field_settings["fields"])
                 field.set(values)
                 fields.append(field)
 
                 index += 1
+
+            input_area.pack(**input_area_pack_config)
 
             self.fields[port] = fields
             print(self.fields)
@@ -200,7 +209,7 @@ class WindowController:
             button_area = Frame(tab)
             fields = [field["fields"] for field in field_list]
             print(fields)
-            update_button = FieldButton(button_area, self.ports[port], "update", self.fields[port], row=len(field_list) + 1)
+            update_button = FieldButton(input_area, self.ports[port], "update", self.fields[port], row=len(field_list) + 1, cnf=button_config)
             button_area.pack()
 
     def add_buttons_to_tabs(self, tabs, buttons_list):
@@ -243,6 +252,7 @@ class Port:
         self.settings = settings
         self.is_valid = is_valid
         self.is_active = is_active
+        self.queue = []
 
     def send(self, command, value=None):
         if value is not None:
@@ -253,13 +263,25 @@ class Port:
             self.serial.write(bytes("!{0}\r".format(command), encoding="utf-8"))
 
         while True:
+            print("reading command")
+
             response = self.read(command)
-            if self.is_response(response):
+            if self.is_response_2(response):
+
                 return response.split("=")[-1]
 
-    def is_response(self, response):
+    def is_response_2(self, response):
+        print(response)
         if len(response) > 0:
             if "@" == response[0]:
+                return True
+        return False
+
+    def is_response(self, response, command):
+        print(response)
+        if len(response) > 0:
+            response_ = response.split("=")
+            if response_[0][2:] == command:
                 return True
         return False
 
@@ -279,6 +301,7 @@ class Port:
 
     # returns readdata from a device on a given comport
     def read(self, command=None):
+
         eol = b'\r'
         leneol = len(eol)
         line = bytearray()
@@ -339,7 +362,6 @@ class PortController:
             return ser.write(bytes("!{0}={1}\r".format(command, value), encoding="utf-8"))
         else:
             return ser.write(bytes("!{0}\r".format(command), encoding="utf-8"))
-
 
     # returns ports that are known but disabled
     def get_disabled_ports(self, ports):
@@ -402,9 +424,10 @@ class PortController:
             for port in ports:
                 print("adding port {} to list".format(port))
                 print("opening port {}".format(port))
-                port_instance = Port(port, {"baudrate": 9600, "timeout": 0.1})
+                port_instance = Port(port, {"baudrate": 9600, "timeout": .1})
                 self.ports[port] = port_instance
                 valid = self.ports[port].handshake_sequence()
+                print("handshake is", valid)
                 if valid:
                     self.ports[port].is_valid = True
                     self.ports[port].is_active = True
