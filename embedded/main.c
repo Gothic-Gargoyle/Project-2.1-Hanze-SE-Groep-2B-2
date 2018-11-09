@@ -5,25 +5,41 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <util/delay.h>
 
 #define UBBRVAL 103 //9600 baud, pagina 243 van de datasheet
 
-//1638 led/key
+// PINOUT aansluiting apparaten op Arduino
+// Temperatuur = PC0 (A0)
+// Lichtsenson = PC1 (A1)
+// TM1638
+// Data     = PB0 (8)
+// Clock    = PB1 (9)
+// Strobe   = PB2 (10)
+// Ultrasonic sensor HC-05
+// Trig     = PB3 (11)
+// Echo     = PD2 (2)
+
+// TM1638 led/key
 const uint8_t data = 0;
 const uint8_t clock = 1;
 const uint8_t strobe = 2;
 #define HIGH 0x1
 #define LOW  0x0
 
-
+// Ultrasonic sensor HC-05
+volatile uint8_t distancewanted = 0;
+volatile uint8_t resultready = 0;
+volatile uint8_t inprogress = 0;
+volatile uint16_t echo = 0;
 
 uint8_t receivebuffersize = 50; // Ought to be enough for anybody
 uint8_t bufferlocation = 0;
 uint8_t autonomemode = 0; // Staat niet in autonome modus
-unsigned char receivebuffer[sizeof(char) * 50];
+unsigned char receivebuffer[sizeof(unsigned char) * 50];
 
-int8_t ondergrenstemperatuur = 0;
-int8_t bovengrenstemperatuur = 0;
+int16_t ondergrenstemperatuur = 0;
+int16_t bovengrenstemperatuur = 0;
 
 uint8_t bovengrenslichtintensiteit = 0;
 uint8_t ondergrenslichtintensiteit = 0;
@@ -140,7 +156,7 @@ unsigned char SCH_Add_Task(void (*pFunction)(), const unsigned int DELAY, const 
 
    // If we're here, there is a space in the task array
    SCH_tasks_G[Index].pTask = pFunction;
-   SCH_tasks_G[Index].Delay =DELAY;
+   SCH_tasks_G[Index].Delay = DELAY;
    SCH_tasks_G[Index].Period = PERIOD;
    SCH_tasks_G[Index].RunMe = 0;
 
@@ -200,7 +216,7 @@ void SCH_Init_T1(void)
    // Hier moet de timer periode worden aangepast ....!
    OCR1A = (uint16_t)15999;                  // 1ms = 16000000 / (1 * 1000) - 1
    TCCR1B = (1 << CS10) | (1 << WGM12);  // prescale op 1, top counter = value OCR1A (CTC mode)
-   TIMSK1 = 1 << OCIE1A;                     // Timer 1 Output Compare A Match Interrupt Enable
+   TIMSK1 |= 1 << OCIE1A;                     // Timer 1 Output Compare A Match Interrupt Enable
 }
 
 /*------------------------------------------------------------------*-
@@ -257,6 +273,28 @@ ISR(TIMER1_COMPA_vect)
          }
       }
    }
+}
+
+// Voor ultrasone sensor
+ISR(INT0_vect) {
+  if(distancewanted == 1 && inprogress == 0 && (PIND & (1<<PD2))) {
+    TCCR1B |= (1<<CS11); // Enable Timer
+    TCNT1 = 0; // Reset Timer
+    inprogress = 1;
+    distancewanted = 0;
+  } else if(inprogress == 1 && ((PIND & (1<<PD2)) == 0)) {
+    TCCR1B &= ~(1<<CS11); // Disable Timer
+    echo = TCNT1; // Count echo
+    inprogress = 0;
+    resultready = 1;
+  }
+}
+
+ISR(TIMER1_OVF_vect) {
+  TCCR1B &= ~(1<<CS11); // Disable Timer
+  echo = TCNT1; // Count echoInches
+  resultready = 1;
+  inprogress = 0;
 }
 
 void uart_init()
@@ -338,14 +376,14 @@ void init_welcome() {
 }
 
 // Leest het argument uit de receivebuffer en geeft deze terug
-int8_t commandArgumentParser() {
-  unsigned char argument[4]; // Kan maximaal uit 4 tekens bestaan
+int16_t commandArgumentParser() {
+  unsigned char argument[10]; // Kan maximaal uit 9 tekens bestaan
   uint8_t argumentpos = 0;
-  int8_t argumentint;
+  int16_t argumentint;
   // Kopieer de chars na het = teken over naar argument
   for (uint8_t i = 0;i < receivebuffersize;i++) {
     if (receivebuffer[i] == '=') {
-      while (receivebuffer[i] != '\0' && argumentpos < 3) {
+      while (receivebuffer[i] != '\0' && argumentpos < 9) {
         i++;
         argument[argumentpos] = receivebuffer[i];
         argumentpos++;
@@ -359,26 +397,35 @@ int8_t commandArgumentParser() {
   return argumentint;
 }
 
-// Leest het argument uit de receivebuffer en geeft deze terug
-int8_t commandArgumentParser() {
-  unsigned char argument[4]; // Kan maximaal uit 4 tekens bestaan
-  uint8_t argumentpos = 0;
-  int8_t argumentint;
-  // Kopieer de chars na het = teken over naar argument
-  for (uint8_t i = 0;i < receivebuffersize;i++) {
-    if (receivebuffer[i] == '=') {
-      while (receivebuffer[i] != '\0' && argumentpos < 4) {
-        i++;
-        argument[argumentpos] = receivebuffer[i];
-        argumentpos++;
-      }
-      argument[argumentpos] = '\0';
-      break; // Stop het kopieren
-    }
-  }
-  // Converteer argument naar int
-  argumentint = atoi(argument);
-  return argumentint;
+// Ultrasonic sensor HC-05 gerelateerde muek
+void inithc05() {
+  DDRB |= 0b00001000; // set port B as output
+  TIMSK1 |= (1 << TOIE1); /* Enable Timer1 overflow interrupts */
+  TCNT1 = 0;
+
+  EICRA = (1<<ISC00);
+  EIMSK = (1<<INT0);
+}
+
+uint16_t get_distancehc06() {
+  distancewanted = 1;
+  PORTB |= (1 << PB3);
+  _delay_us(10);
+  PORTB &= (~(1 << PB3));
+  while (resultready == 0); /* Wait for the result to be ready */
+  return echo;
+}
+// Einde HC-05 ultrasoonsensor muek
+
+// Geef de lichtsterkte terug als 8 bit unsigned integer.
+uint8_t get_light() {
+  // Selecteer Analoge input 1
+  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
+  ADCSRA |= _BV(ADSC);
+  loop_until_bit_is_clear(ADCSRA, ADSC);
+  uint8_t percentage;
+  percentage = ((uint32_t)ADCH*100)/256;
+  return percentage;
 }
 
 // Handel commando's af en stuur een reactie
@@ -386,54 +433,54 @@ void handleCommand() {
   unsigned char output[50];
   // Commando's die alleen een status update geven
   if (strcmp(receivebuffer, "!connectie-check") == 0) {
-    uartSend("@temperatuur"); // Besturingsunit is een temperatuurmeter
+    snprintf(output, 50, "%s", "@connectie-check=succes");
   } else if (strcmp(receivebuffer, "!autonoom") == 0) {
     if (autonomemode == 0) {
-      uartSend("@nee");
+      snprintf(output, 50, "%s", "@autonoom=0");
     } else {
-      uartSend("@ja");
+      snprintf(output, 50, "%s", "@autonoom=1");
     }
   } else if (strcmp(receivebuffer, "!bovengrenstemperatuur") == 0) {
     sprintf(output,"@bovengrenstemperatuur=%d",bovengrenstemperatuur);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenstemperatuur") == 0) {
     sprintf(output,"@ondergrenstemperatuur=%d",ondergrenstemperatuur);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!schermuitrol") == 0) {
     sprintf(output,"@schermuitrol=%d",schermuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrensuitrol") == 0) {
     sprintf(output,"@ondergrensuitrol=%d",ondergrensuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrensuitrol") == 0) {
     sprintf(output,"@bovengrensuitrol=%d",bovengrensuitrol);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!ondergrenslichtintensiteit") == 0) {
     sprintf(output,"@ondergrenslichtintensiteit=%d",ondergrenslichtintensiteit);
-    uartSend(output);
   } else if (strcmp(receivebuffer, "!bovengrenslichtintensiteit") == 0) {
     sprintf(output,"@bovengrenslichtintensiteit=%d",bovengrenslichtintensiteit);
-    uartSend(output);
+  } else if (strcmp(receivebuffer, "!afstand") == 0) {
+    uint16_t distance_int = get_distancehc06();
+    snprintf(output, 50, "%s%d", "#afstand=", distance_int);
+  } else if (strcmp(receivebuffer, "!licht") == 0) {
+    uint8_t light_int = get_light();
+    snprintf(output, 50, "%s%u", "@licht=", light_int);
   // Commando's die de staat aanpassen
   } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
     autonomemode = 0;
-    uartSend("@succes");
+    snprintf(output, 50, "%s", "@autonoom=succes");
   } else if (strcmp(receivebuffer, "!autonoom=1") == 0) {
     autonomemode = 1;
-    uartSend("@succes");
+    snprintf(output, 50, "%s", "@autonoom=succes");
   } else if (strncmp(receivebuffer, "!bovengrenstemperatuur=", 23) == 0) {
     bovengrenstemperatuur = commandArgumentParser();
-    uartSend("@succes");
+    snprintf(output, 50, "%s", "@bovengrenstemperatuur=succes");
   } else if (strncmp(receivebuffer, "!ondergrenstemperatuur=", 23) == 0) {
     ondergrenstemperatuur = commandArgumentParser();
-    uartSend("@succes");
+    snprintf(output, 50, "%s", "@ondergrenstemperatuur=succes");
   } else if (strncmp(receivebuffer, "!schermuitrol=", 14) == 0) {
     gewensteschermuitrol = commandArgumentParser();
-    uartSend("@succes");
+    snprintf(output, 50, "%s", "@schermuitrol=succes");
   // Fout commando
   } else {
-    uartSend("@ongeldig");
+    snprintf(output, 50, "%s", "@ongeldig");
   }
+  uartSend(output);
 }
 
 // Niet blokkerende ontvanger
@@ -451,24 +498,15 @@ void messagehandler() {
 // Geeft 20.6 graden terug als 206
 int16_t get_temperature() {
   // Selecteer Analoge input 0
-  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
+  ADMUX = (1<<REFS0)|(0<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
   ADCSRA |= _BV(ADSC);
   loop_until_bit_is_clear(ADCSRA, ADSC);
 
   uint16_t analogv = 0;
-  analogv = ((ADCH)*(5000/1024));
+  analogv = ((uint32_t)ADC*5000)/1024;
   int16_t tempinc = 0;
-  tempinc = (((analogv)-500)/10);
+  tempinc = (analogv - 500);
   return tempinc;
-}
-
-// Geef de lichtsterkte terug als 8 bit unsigned integer.
-uint8_t get_light() {
-  // Selecteer Analoge input 1
-  ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
-  ADCSRA |= _BV(ADSC);
-  loop_until_bit_is_clear(ADCSRA, ADSC);
-  return ADCH ;
 }
 
 void send_status_temperature() {
@@ -478,10 +516,8 @@ void send_status_temperature() {
   uartSend(temperature_str);
 }
 
-//T1638 gerelateerde muek
-
-void write1638(uint8_t pin, uint8_t val)
-{
+// TM1638 gerelateerde muek
+void write1638(uint8_t pin, uint8_t val) {
     if (val == LOW) {
         PORTB &= ~(_BV(pin)); // clear bit
     } else {
@@ -489,11 +525,10 @@ void write1638(uint8_t pin, uint8_t val)
     }
 }
 
-void shiftOut1638 (uint8_t val)
-{
+void shiftOut1638 (uint8_t val) {
     uint8_t i;
     for (i = 0; i < 8; i++)  {
-        write1638(clock, LOW);   // bit valid on rising edge
+        write1638(clock, LOW); // bit valid on rising edge
         write1638(data, val & 1 ? HIGH : LOW); // lsb first
         val = val >> 1;
         write1638(clock, HIGH);
@@ -501,19 +536,17 @@ void shiftOut1638 (uint8_t val)
 }
 
 void sendCommand1638(uint8_t value) {
-    write1638(strobe, LOW);
-    shiftOut1638(value);
-    write1638(strobe, HIGH);
+  write1638(strobe, LOW);
+  shiftOut1638(value);
+  write1638(strobe, HIGH);
 }
 
-void setup1638()
-{
-  DDRB=0xff; // set port B as output
+void setup1638() {
+  DDRB |= 0b00000111; // set port B as output
   sendCommand1638(0x89);  // activate and set brightness to medium
 }
 
-void reset1638()
-{
+void reset1638() {
   // clear memory - all 16 addresses
   sendCommand1638(0x40); // set auto increment mode
   write1638(strobe, LOW);
@@ -528,27 +561,24 @@ void reset1638()
 // Zet de aangegeven hoeveelheid ledjes aan op het bordje om aan te geven hoe ver uitgeschoven het zonnescherm is.
 void turnonled1638(uint8_t leds) {
   uint8_t position = 0;
+  uint8_t value = 0x01;
   do {
     sendCommand1638(0x44);
     write1638(strobe, LOW);
     shiftOut1638(0xC0 + (position << 1) + 1);
     shiftOut1638(0x01);
-   write1638(strobe, HIGH);
-    position++;
-  } while (position < leds);
-  do {
-    sendCommand1638(0x44);
-    write1638(strobe, LOW);
-    shiftOut1638(0xC0 + (position << 1) + 1);
-    shiftOut1638(0x00);
     write1638(strobe, HIGH);
     position++;
+    if (position == leds) {
+      value = 0x0; // Zet de leds uit
+    }
   } while (position < 8);
-
 }
+// Einde TM1638 gerelateerde muek
 
 // Kijkt naar de huidige en gewenste schermuitrol en past deze 1 stap aan
 // De bedoeling is om deze functie iedere seconde aan te roepen vanuit de scheduler
+// Nogal een dirty hack, doe eens fix
 void passchermuitrolaan() {
   if (gewensteschermuitrol > schermuitrol) {
     schermuitrol = schermuitrol + 12;
@@ -578,6 +608,8 @@ uint8_t main() {
   // Init de 1638 LED/KEY
   setup1638();
   reset1638();
+  // Init de Ultrasonic sensor HC-05
+  inithc05();
   // Welkomspraatje en eventueel afhandelen eerste boot
   init_welcome();
   // Insert tasks here
