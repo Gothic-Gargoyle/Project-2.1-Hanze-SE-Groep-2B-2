@@ -521,6 +521,12 @@ void handleCommand() {
   } else if (strncmp(receivebuffer, "!ondergrenstemperatuur=", 23) == 0) {
     ondergrenstemperatuur = commandArgumentParser();
     snprintf(output, 50, "%s", "@ondergrenstemperatuur=succes");
+  } else if (strncmp(receivebuffer, "!bovengrenslichtintensiteit=", 28) == 0) {
+    bovengrenslichtintensiteit = commandArgumentParser();
+    snprintf(output, 50, "%s", "@bovengrenslichtintensiteit=succes");
+  } else if (strncmp(receivebuffer, "!ondergrenslichtintensiteit=", 28) == 0) {
+    ondergrenslichtintensiteit = commandArgumentParser();
+    snprintf(output, 50, "%s", "@bovengrenslichtitensiteit=succes");
   } else if (strncmp(receivebuffer, "!schermuitrol=", 14) == 0) {
     uint8_t schermuitrolint = commandArgumentParser();
     if (schermuitrolint >= 0 && schermuitrolint <= 100) {
