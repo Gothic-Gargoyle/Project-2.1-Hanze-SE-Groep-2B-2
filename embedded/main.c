@@ -13,12 +13,12 @@
 // Temperatuur = PC0 (A0)
 // Lichtsenson = PC1 (A1)
 // TM1638
-// Data     = PB0 (8)
-// Clock    = PB1 (9)
-// Strobe   = PB2 (10)
+// Data        = PB0 (8)
+// Clock       = PB1 (9)
+// Strobe      = PB2 (10)
 // Ultrasonic sensor HC-05
-// Trig     = PB3 (11)
-// Echo     = PD2 (2)
+// Trig        = PB3 (11)
+// Echo        = PD2 (2)
 
 // TM1638 led/key
 const uint8_t data = 0;
@@ -26,6 +26,11 @@ const uint8_t clock = 1;
 const uint8_t strobe = 2;
 #define HIGH 0x1
 #define LOW  0x0
+                   /*0*/  /*1*/   /*2*/  /*3*/  /*4*/  /*5*/  /*6*/  /*7*/   /*8*/  /*9*/  /*off*/
+const uint8_t digits[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x0 };
+uint8_t statusindicator = 0;
+
+
 
 // Ultrasonic sensor HC-05
 volatile uint8_t distancewanted = 0;
@@ -44,7 +49,7 @@ int16_t bovengrenstemperatuur = 0;
 uint8_t bovengrenslichtintensiteit = 0;
 uint8_t ondergrenslichtintensiteit = 0;
 
-uint8_t ondergrensuitrol = 0;
+uint8_t ondergrensuitrol = 100;
 uint8_t bovengrensuitrol = 0;
 
 uint8_t schermuitrol = 0;
@@ -292,7 +297,6 @@ ISR(INT0_vect) {
 
 ISR(TIMER1_OVF_vect) {
   TCCR1B &= ~(1<<CS11); // Disable Timer
-  echo = TCNT1; // Count echoInches
   resultready = 1;
   inprogress = 0;
 }
@@ -351,6 +355,30 @@ void uartSend(unsigned char *buffer) {
   }
 }
 
+// Returns the amount of numbers in an int
+uint8_t countint(uint16_t i) {
+  uint8_t amount = 0;
+  while (i != 0) {
+    amount++;
+    i /= 10;
+  }
+  if (amount == 0) {
+    amount = 1; // Int bestaat minstens uit 1 getal
+  }
+  return amount;
+}
+
+uint8_t * intsplitter(uint16_t getal) {
+  uint8_t getalsize = countint(getal);
+  uint8_t *getalarray = malloc(sizeof(uint8_t) * getalsize);
+  while (getalsize--) {
+    getalarray[getalsize] = getal % 10;
+    getal /= 10;
+  }
+  return getalarray;
+}
+
+
 unsigned char uartStatus() {
   // Is uart input buffer empty?
   return  UCSR0A & ( 1 << RXC0 );
@@ -407,25 +435,42 @@ void inithc05() {
   EIMSK = (1<<INT0);
 }
 
+// Geeft de afstand in centimeter terug
 uint16_t get_distancehc06() {
   distancewanted = 1;
   PORTB |= (1 << PB3);
   _delay_us(10);
   PORTB &= (~(1 << PB3));
   while (resultready == 0); /* Wait for the result to be ready */
-  return echo;
+  return echo / 15;
 }
 // Einde HC-05 ultrasoonsensor muek
 
 // Geef de lichtsterkte terug als 8 bit unsigned integer.
+// Tussen de 0 en 100 in, 0 is minimaal, 100 is maximaal
 uint8_t get_light() {
   // Selecteer Analoge input 1
   ADMUX = (1<<REFS0)|(1<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(1<<MUX0);
   ADCSRA |= _BV(ADSC);
   loop_until_bit_is_clear(ADCSRA, ADSC);
   uint8_t percentage;
-  percentage = ((uint32_t)ADCH*100)/256;
+  percentage = ((uint32_t)ADCH*100)/255;
   return percentage;
+}
+
+// Vraag temperatuur op
+// Geeft 20.6 graden terug als 206
+int16_t get_temperature() {
+  // Selecteer Analoge input 0
+  ADMUX = (1<<REFS0)|(0<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
+  ADCSRA |= _BV(ADSC);
+  loop_until_bit_is_clear(ADCSRA, ADSC);
+
+  uint16_t analogv = 0;
+  analogv = ((uint32_t)ADC*5000)/1024;
+  int16_t tempinc = 0;
+  tempinc = (analogv - 500);
+  return tempinc;
 }
 
 // Handel commando's af en stuur een reactie
@@ -460,6 +505,9 @@ void handleCommand() {
   } else if (strcmp(receivebuffer, "!licht") == 0) {
     uint8_t light_int = get_light();
     snprintf(output, 50, "%s%u", "@licht=", light_int);
+  } else if (strcmp(receivebuffer, "!temperatuur") == 0) {
+    int16_t temperature_int = get_temperature();
+    snprintf(output, 50, "%s%d", "@temperatuur=", temperature_int);
   // Commando's die de staat aanpassen
   } else if (strcmp(receivebuffer, "!autonoom=0") == 0) {
     autonomemode = 0;
@@ -474,8 +522,13 @@ void handleCommand() {
     ondergrenstemperatuur = commandArgumentParser();
     snprintf(output, 50, "%s", "@ondergrenstemperatuur=succes");
   } else if (strncmp(receivebuffer, "!schermuitrol=", 14) == 0) {
-    gewensteschermuitrol = commandArgumentParser();
-    snprintf(output, 50, "%s", "@schermuitrol=succes");
+    uint8_t schermuitrolint = commandArgumentParser();
+    if (schermuitrolint >= 0 && schermuitrolint <= 100) {
+      gewensteschermuitrol = schermuitrolint;
+      snprintf(output, 50, "%s", "@schermuitrol=succes");
+    } else {
+      snprintf(output, 50, "%s", "@ongeldig");
+    }
   // Fout commando
   } else {
     snprintf(output, 50, "%s", "@ongeldig");
@@ -494,26 +547,18 @@ void messagehandler() {
   }
 }
 
-// Vraag temperatuur op
-// Geeft 20.6 graden terug als 206
-int16_t get_temperature() {
-  // Selecteer Analoge input 0
-  ADMUX = (1<<REFS0)|(0<<ADLAR)|(0<<MUX3)|(0<<MUX2)|(0<<MUX1)|(0<<MUX0);
-  ADCSRA |= _BV(ADSC);
-  loop_until_bit_is_clear(ADCSRA, ADSC);
-
-  uint16_t analogv = 0;
-  analogv = ((uint32_t)ADC*5000)/1024;
-  int16_t tempinc = 0;
-  tempinc = (analogv - 500);
-  return tempinc;
-}
-
 void send_status_temperature() {
   unsigned char temperature_str[50];
   int16_t temperature_int = get_temperature();
   snprintf(temperature_str, 50, "%s%d", "#temp=", temperature_int);
   uartSend(temperature_str);
+}
+
+void send_status_light() {
+  unsigned char light_str[50];
+  uint8_t light_int = get_light();
+  snprintf(light_str, 50, "%s%u", "#licht=", light_int);
+  uartSend(light_str);
 }
 
 // TM1638 gerelateerde muek
@@ -561,38 +606,154 @@ void reset1638() {
 // Zet de aangegeven hoeveelheid ledjes aan op het bordje om aan te geven hoe ver uitgeschoven het zonnescherm is.
 void turnonled1638(uint8_t leds) {
   uint8_t position = 0;
-  uint8_t value = 0x01;
+  uint8_t value = 0x01; // Led aan
   do {
-    sendCommand1638(0x44);
-    write1638(strobe, LOW);
-    shiftOut1638(0xC0 + (position << 1) + 1);
-    shiftOut1638(0x01);
-    write1638(strobe, HIGH);
-    position++;
     if (position == leds) {
       value = 0x0; // Zet de leds uit
     }
+    sendCommand1638(0x44);
+    write1638(strobe, LOW);
+    shiftOut1638(0xC0 + (position << 1) + 1);
+    shiftOut1638(value);
+    write1638(strobe, HIGH);
+    position++;
   } while (position < 8);
 }
+
+// Handelt het printen van temperaturen af voor het 1638 scherm
+void temperaturehandler1638(uint8_t *display, int16_t stemperatuur) {
+  uint16_t temperatuur;
+  uint8_t displayposition;
+  if (stemperatuur < 0) { // Als de temperatuur negatief is, print een - teken en maak het getal positief
+    temperatuur = abs(stemperatuur);
+    displayposition = 6 - countint(temperatuur); // Right allign het getal
+    display[displayposition] = 0b01000000; // min teken voor negatieve temperaturen
+    displayposition++;
+  } else {
+    temperatuur = (uint16_t)stemperatuur;
+    displayposition = 7 - countint(temperatuur); // Right allign het getal
+  }
+  uint8_t * temparray = intsplitter(temperatuur);
+  for (uint8_t loc = 0;loc < countint(temperatuur);loc++) {
+    uint8_t number = temparray[loc];
+    display[displayposition] = digits[number];
+    if (countint(temperatuur) - loc == 2) {
+      display[displayposition] |= 0b10000000; // decimaal punt
+    }
+    displayposition++;
+  }
+  free(temparray);
+  display[displayposition] |= 0b01011000; // Graden celcius
+  displayposition++;
+}
+
+void textstatus1638() {
+  uint8_t position = 0;
+  uint8_t display[8] = { 0 }; // Een byte voor elke indicator
+  uint8_t displayposition = 0;
+
+  // statusindicator 0 == Temperature indication
+  if (statusindicator == 0) {
+    int16_t stemperatuur = get_temperature();
+    display[displayposition++] = 0b01111000; // Teken iets dat op een T lijkt
+    display[displayposition++] = 0b01110011; // P
+
+    temperaturehandler1638(display, stemperatuur);
+
+    statusindicator++;
+  }
+  // statusindicator 1 == Licht indicatie
+  else if (statusindicator == 1) {
+    uint8_t light = get_light();
+    display[displayposition++] = 0b00111010; // L i
+    display[displayposition++] = 0b00111001; // C
+    display[displayposition++] = 0b01110110; // H
+    display[displayposition++] = 0b01111000; // T
+    displayposition = 8 - countint(light); // Right allign het getal
+    uint8_t * lichtarray = intsplitter(light);
+    for (uint8_t loc = 0;loc < countint(light);loc++) {
+      display[displayposition++] = digits[lichtarray[loc]];
+    }
+    free(lichtarray);
+
+    statusindicator++;
+  } else if (statusindicator == 2) {
+    uint16_t distance = get_distancehc06();
+    display[displayposition++] = 0b01110111; // A
+    display[displayposition++] = 0b01110001; // F
+    display[displayposition++] = 0b01101101; // S
+    display[displayposition++] = 0b01111000; // T
+    displayposition = 8 - countint(distance); // Right allign het getal
+    uint8_t * afstandarray = intsplitter(distance);
+    for (uint8_t loc = 0;loc < countint(distance);loc++) {
+      display[displayposition++] = digits[afstandarray[loc]];
+    }
+    free(afstandarray);
+
+    statusindicator++;
+  // Laat de autonome mode instelling zien
+  } else if (statusindicator == 3) {
+    display[displayposition++] = 0b01110111; // A
+    display[displayposition++] = 0b00111110; // U
+    display[displayposition++] = 0b01111000; // T
+    display[displayposition++] = 0b00111111; // O
+    displayposition++;
+    if (autonomemode == 0) {
+      display[displayposition++] = 0b00111110; // U
+      display[displayposition++] = 0b00110000; // I
+      display[displayposition++] = 0b01111000; // T
+    } else {
+      display[displayposition++] = 0b01110111; // A
+      display[displayposition++] = 0b01110111; // A
+      display[displayposition++] = 0b01010100; // N
+    }
+  statusindicator++;
+  // Laat bovengrens temperatuurinstelling zien
+  } else if (statusindicator == 4) {
+    display[displayposition++] = 0b01111000; // T
+    display[displayposition++] = 0b01110011; // P
+    display[displayposition++] = 0b00000001; // Hoog streepje
+    temperaturehandler1638(display, bovengrenstemperatuur);
+    statusindicator++;
+  // Laat ondergrens temperatuurinstelling zien
+  } else if (statusindicator == 5) {
+    display[displayposition++] = 0b01111000; // T
+    display[displayposition++] = 0b01110011; // P
+    display[displayposition++] = 0b00001000; // Laag streepje
+    temperaturehandler1638(display, ondergrenstemperatuur);
+    statusindicator = 0;
+  }
+  while (position < 8) {
+    sendCommand1638(0x44);
+    write1638(strobe, LOW);
+    shiftOut1638(0xC0 + (position << 1));
+    shiftOut1638(display[position]);
+    write1638(strobe, HIGH);
+    position++;
+  }
+}
+
 // Einde TM1638 gerelateerde muek
 
 // Kijkt naar de huidige en gewenste schermuitrol en past deze 1 stap aan
-// De bedoeling is om deze functie iedere seconde aan te roepen vanuit de scheduler
-// Nogal een dirty hack, doe eens fix
 void passchermuitrolaan() {
-  if (gewensteschermuitrol > schermuitrol) {
-    schermuitrol = schermuitrol + 12;
-  } else if (gewensteschermuitrol < schermuitrol) {
-    schermuitrol = schermuitrol - 12;
+  if (gewensteschermuitrol > schermuitrol && schermuitrol < 100) {
+    schermuitrol = schermuitrol + 1;
+    turnonled1638(schermuitrol / 12);
+  } else if (gewensteschermuitrol < schermuitrol && schermuitrol > 0 ) {
+    schermuitrol = schermuitrol - 1;
+    turnonled1638(schermuitrol / 12);
   }
-  turnonled1638(schermuitrol / 12);
 }
 
 // Neemt beslissing over het aanpasen van de schermuitrol in autonome modus.
 void autonoomaanpassenschermuitrol() {
   if (autonomemode == 1) {
     int16_t temperatuur = get_temperature();
+    uint8_t licht = get_light();
     if (temperatuur > ondergrenstemperatuur && temperatuur < bovengrenstemperatuur) {
+      gewensteschermuitrol = 100;
+    } else if (licht > ondergrenslichtintensiteit && licht < bovengrenslichtintensiteit) {
       gewensteschermuitrol = 100;
     } else {
       gewensteschermuitrol = 0;
@@ -614,9 +775,11 @@ uint8_t main() {
   init_welcome();
   // Insert tasks here
   uint8_t messagehandler_id = SCH_Add_Task(messagehandler,1000,1); // Vuur de messagehandler iedere 1ms af
-  uint8_t temperaturehandler_id = SCH_Add_Task(send_status_temperature,1000,2000); //Stuur de temperatuur iedere 40 sec
-  SCH_Add_Task(passchermuitrolaan,1000,2000); // Pas de schermuitrol leds iedere seconde aan
-  SCH_Add_Task(autonoomaanpassenschermuitrol,10000,2000); // Vraag om de 10 seconde de temperatuur op en pas de schermuitrol aan
+  SCH_Add_Task(send_status_temperature,1000,40000); //Stuur de temperatuur iedere 40 sec
+  SCH_Add_Task(send_status_light,1000,60000); //Stuur de lichtsterkte iedere 60 sec
+  SCH_Add_Task(passchermuitrolaan,1000,100); // Pas de schermuitrol leds 10 keer per seconde aan
+  SCH_Add_Task(autonoomaanpassenschermuitrol,1000,10000); // Vraag om de 10 seconde de temperatuur op en pas de schermuitrol aan
+  SCH_Add_Task(textstatus1638,1000,3000); // Update het scherm iedere 3 sec met andere info
   SCH_Start(); // Zet de scheduler aan
   while (1) {
     SCH_Dispatch_Tasks(); // Werklus
