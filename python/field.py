@@ -93,11 +93,13 @@ class ActionButton:
 
 
 class GraphButton:
-    def __init__(self, root, graphs, port, text, cnf={}):
+    def __init__(self, root, graphs, port, type, text, cnf={}):
         self.port = port
+        self.type = type
         self.graphs = graphs
         self.button = Button(root, text=text, command=lambda: self.callback(), **cnf)
         self.button.pack()
 
     def callback(self):
-        self.graphs[self.port].show()
+        print(self.graphs, self.port, self.type)
+        self.graphs[self.port][self.type].show()

@@ -253,7 +253,7 @@ class WindowController:
 
 
     # source: https://stackoverflow.com/questions/16470903/pyserial-2-6-specify-end-of-line-in-readline
-    def read(self, ser):
+    def read(self, ser, command=None):
         eol = b'\r'
         leneol = len(eol)
         line = bytearray()
@@ -269,8 +269,15 @@ class WindowController:
             line.decode(encoding="utf-8")
         except:
             return "@ongeldig\n"
-        return line.decode(encoding="utf-8")
 
+        response = line.decode(encoding="utf-8")
+        if command is not None:
+            if command == response:
+                return response
+            else:
+                # push in queue
+                self.read(ser, command=command)
+        return response
 
     def creat_tab(self, tab_area, nb, frame,  name):
         # source: https://gist.github.com/mikofski/5851633
