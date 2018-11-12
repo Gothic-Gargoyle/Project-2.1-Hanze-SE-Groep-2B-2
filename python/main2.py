@@ -148,18 +148,22 @@ class WindowController:
             self.add_buttons_to_tabs(self.tabs, self.buttons_list)
 
             for name, graph in self.graphs.items():
-                if graph.timer_active:
-                    graph.stop()
+                for type, graph in self.graphs[name].items():
+                    if graph.timer_active:
+                        graph.stop()
 
             for name, port in self.ports.items():
                 print("creating graph at {}".format(name))
 
-                graph = Graph(port, self.ports, 5)
-                self.graphs[name] = graph
+                light_graph = Graph(port, "licht", self.ports, 5, "pecentage licht", "realtime licht {} in %")
+                temp_graph = Graph(port, "temp", self.ports, 5, "graden C", "realtime temperuur {} in C")
+                self.graphs[name] = {"temp": temp_graph, "licht": light_graph}
                 if name not in self.ports:
-                    self.graphs[name].stop()
+                    for type, graph in self.graphs[name].items():
+                        graph.stop()
                 else:
-                    self.graphs[name].start()
+                    for type, graph in self.graphs[name].items():
+                        graph.start()
 
         else:
             print("no comports found")
@@ -219,7 +223,8 @@ class WindowController:
                 port_obj = self.ports[port]
                 button = ActionButton(button_area, port_obj, button_settings["text"], commands=button_settings["commands"], cnf=button_config)
             print('YA YEET {}'.format(port))
-            graph_button = GraphButton(button_area, self.graphs, port, "open graph", cnf=button_config)
+            GraphButton(button_area, self.graphs, port, "temp", "open temp graph", cnf=button_config)
+            GraphButton(button_area, self.graphs, port, "licht", "open light graph", cnf=button_config)
             button_area.pack()
 
     # def open_graph(self, port):
@@ -260,7 +265,7 @@ class Port:
         self.settings = settings
         self.is_valid = is_valid
         self.is_active = is_active
-        self.queue = []
+        self.queue = {}
 
     def send(self, command, value=None):
         if value is not None:
@@ -273,7 +278,7 @@ class Port:
         while True:
             print("reading command")
 
-            response = self.read(command)
+            response = self.read()
             if self.is_response_2(response):
 
                 return response.split("=")[-1]
@@ -309,7 +314,14 @@ class Port:
 
     # returns readdata from a device on a given comport
     def read(self, command=None):
-
+        print("queue:", self.queue)
+        if command in self.queue.keys():
+            for i in range(len(self.queue[command])):
+                queue_command = self.queue[command][i]
+                if command == queue_command.split("=")[0]:
+                    value = self.queue[command].pop(i)
+                    print("found in queue ", value)
+                    return value
         eol = b'\r'
         leneol = len(eol)
         line = bytearray()
@@ -327,11 +339,15 @@ class Port:
             print("cannot decode response")
             return "@ongeldig\r"
         response = line.decode(encoding="utf-8").strip()
-        # if command is not None:
-        #     print("command is set")
-        #     response = response.split("=")
-        #     if response[0] == "@" + command:
-        #         print("@" + command, "==", response[0])
+        if command is not None and response is not "":
+            response_command = response.split("=")[0]
+            if command == response_command:
+                return response
+            else:
+                if command not in self.queue.keys():
+                    self.queue[response_command] = []
+                self.queue[response_command].append(response)
+                return self.read(command=command)
         return response
 
 

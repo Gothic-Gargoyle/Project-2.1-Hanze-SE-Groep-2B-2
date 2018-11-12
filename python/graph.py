@@ -5,7 +5,7 @@ from drawnow import *
 
 
 class Graph:
-    def __init__(self, port, ports, timer=1):
+    def __init__(self, port, listen_to, ports, unit, title, timer=1):
         self.temp_cnt = 0
         self.timer = timer
         self.temp_list = []
@@ -13,8 +13,11 @@ class Graph:
         self.timer_active = True
         self.port = port
         self.active = False
+        self.listen_to = listen_to
         self.plt = plt
         self.ports = ports
+        self.unit = unit
+        self.title = title
         # plt.ion()
 
     def start(self):
@@ -24,14 +27,17 @@ class Graph:
         self.temperature_loop()
 
     def temperature_loop(self):
+        print(self.timer_active)
         if self.timer_active:
             # print(self.temp_list, port)
-            arduinoString = self.port.read()
+            arduinoString = self.port.read("#" + self.listen_to)
             # print(self, self.port.serial.name, arduinoString)
             # print(self.port.serial.name, arduinoString)
             # print(port.serial.name, self.temp_list)
             s = arduinoString.split('=')
-            if s[0] == '#temp':
+
+            print('#' + self.listen_to, "==", s[0])
+            if s[0] == '#' + self.listen_to:
                 temp_number = float(s[1])
                 temp_value = float(temp_number/10)
                 self.temp_list.append(temp_value)
@@ -56,6 +62,7 @@ class Graph:
         self.timer_active = False
 
     def makeFig(self):
+
         # for port in self.ports.keys():
             # print('mijn leven {}'.format(port[3:]))
         print("OPENING GRAPH FOR {}".format(self.port.serial.name))
@@ -64,15 +71,16 @@ class Graph:
         ax = self.plt.gca()
         ax.autoscale_view()
         self.plt.gcf().autofmt_xdate()
-        self.plt.title('Real-time temperatuur: {}°C'.format(self.temp_list[-1]))
+        self.plt.title(self.title.format(self.temp_list[-1]))
         self.plt.grid(True)
-        self.plt.ylabel('Temp C')
+        self.plt.ylabel(self.unit)
         self.plt.xlabel('Tijd')
-        self.plt.plot(self.temp_time, self.temp_list, 'r-', label='Graden C')
+        self.plt.plot(self.temp_time, self.temp_list, 'r-', label=self.unit)
         self.plt.legend(loc='upper left')
         self.plt.show()
 
     def show(self):
+        print(self.temp_list)
         if len(self.temp_list) > 0:
             self.active = True
             print("STARTING GRAPH FOR {}".format(self.port.serial.name))
