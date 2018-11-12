@@ -70,17 +70,20 @@ class WindowController:
             {
                 "label": "min - max opening (in %)",
                 "fields": ("ondergrensuitrol", "bovengrensuitrol"),
-                "pattern": percentage
+                "pattern": percentage,
+                "mult": 1
             },
             {
                 "label": "sluit rolluiken van tot (in C)",
                 "fields": ("ondergrenstemperatuur", "bovengrenstemperatuur"),
-                "pattern": temperature
+                "pattern": temperature,
+                "mult": 10
             },
             {
                 "label": "sluit rolluiken vanaf licht intensiteit (in %)",
                 "fields": ("ondergrenslichtintensiteit", "bovengrenslichtintensiteit"),
-                "pattern": percentage
+                "pattern": percentage,
+                "mult": 1
             },
         ]
 
@@ -114,7 +117,7 @@ class WindowController:
         self.graph_buttons = {}
 
         self.ports = {}
-        self.port_controller = PortController(self.ports, callback=self.update, timeout=1000)
+        self.port_controller = PortController(self.ports, callback=self.update, timeout=1)
 
         self.root.mainloop()
 
@@ -155,8 +158,8 @@ class WindowController:
             for name, port in self.ports.items():
                 print("creating graph at {}".format(name))
 
-                light_graph = Graph(port, "licht", self.ports, 5, "pecentage licht", "realtime licht {} in %")
-                temp_graph = Graph(port, "temp", self.ports, 5, "graden C", "realtime temperuur {} in C")
+                light_graph = Graph(port, "licht", self.ports, "pecentage licht", "realtime licht {} in %", timer=5)
+                temp_graph = Graph(port, "temp", self.ports, "graden C", "realtime temperuur {} in C", timer=5)
                 self.graphs[name] = {"temp": temp_graph, "licht": light_graph}
                 if name not in self.ports:
                     for type, graph in self.graphs[name].items():
@@ -197,7 +200,7 @@ class WindowController:
             fields = []
             input_area = Frame(tab, **input_area_config)
             for field_settings in field_list:
-                field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], row=index, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
+                field = Range(input_area, field_settings["fields"], field_settings["label"], pattern=field_settings["pattern"], mult=field_settings["mult"], row=index, tcnf=text_config, cnf=input_config, pcnf=input_area_config)
                 values = self.get_fields(port, field_settings["fields"])
                 field.set(values)
                 fields.append(field)
@@ -353,9 +356,9 @@ class Port:
 
 class PortController:
 
-    def __init__(self, ports, callback=None, timeout=1000):
+    def __init__(self, ports, callback=None, timeout=1):
         self.ports = ports
-        self.connection_loop(timeout / 1000, callback)
+        self.connection_loop(timeout, callback)
         callback()
 
     def connection_loop(self, timeout, callback):
@@ -374,7 +377,6 @@ class PortController:
         # if the port configuration has changed
         if ports_to_enable or ports_to_disable or ports_to_add:
             callback()
-
 
         # restart check in timeout
         Timer(timeout, lambda: self.connection_loop(timeout, callback)).start()

@@ -74,6 +74,7 @@ class Graph:
         self.plt.title(self.title.format(self.temp_list[-1]))
         self.plt.grid(True)
         self.plt.ylabel(self.unit)
+        print(self.unit, self.title)
         self.plt.xlabel('Tijd')
         self.plt.plot(self.temp_time, self.temp_list, 'r-', label=self.unit)
         self.plt.legend(loc='upper left')

@@ -4,7 +4,7 @@ from tkinter import *
 
 
 class Range:
-    def __init__(self, root, slug, label, row=0, column=0, pattern='[0-9]', cnf={}, pcnf={}, tcnf={}):
+    def __init__(self, root, slug, label, row=0, column=0, pattern='[0-9]', cnf={}, pcnf={}, tcnf={}, mult=1):
 
         # init
         self.root = root
@@ -16,6 +16,7 @@ class Range:
         self.cnf = cnf
         self.pcnf = pcnf
         self.tcnf = tcnf
+        self.mult = mult
 
         # create label
         self.label = Label(self.root, text=self.label_text, **self.tcnf)
@@ -37,7 +38,7 @@ class Range:
         print(self.entries)
         return_entries = []
         for slug, entry in self.entries.items():
-            return_entries.append((slug, entry.get()))
+            return_entries.append((slug, int(entry.get()) * self.mult))
 
         return tuple(return_entries)
 
